@@ -207,15 +207,15 @@ away:
 
 1. Install [SwiftBar](https://swiftbar.app): `brew install --cask swiftbar` (or download it from the
    website).
-2. Make sure `/usr/bin/python3 --version` works — if not, run `xcode-select --install`.
-3. Start SwiftBar. When it asks for a **plugin folder**, choose the `menubar` folder inside
+2. Start SwiftBar. When it asks for a **plugin folder**, choose the `menubar` folder inside
    Work-Tracker.
-4. In SwiftBar's menu → *Preferences* → turn on **Launch at Login**.
+3. In SwiftBar's menu → *Preferences* → turn on **Launch at Login**.
 
 **Check:** A timer icon appears in the menu bar. A warning triangle instead means the server isn't running (see step 5).
 
-The plugin refreshes every 30 s (the `30s` in its file name) and talks to `http://localhost:47474` —
-edit `URL` at the top of `menubar/worktracker.30s.py` if you changed the port.
+The plugin has no refresh interval: the server has SwiftBar re-run it when the text changes (Start/Stop
+anywhere, the shown minute flips, a new day), and a run is a single `curl` to `http://localhost:47474` —
+edit `URL` at the top of `menubar/worktracker.sh` if you changed the port.
 
 ---
 
@@ -318,7 +318,7 @@ yesterday's mistake without the database growing.
 ```mermaid
 flowchart LR
     tab["Browser tab<br/>static/index.html · app.js · style.css"]
-    plugin["SwiftBar plugin<br/>menubar/worktracker.30s.py"]
+    plugin["SwiftBar plugin<br/>menubar/worktracker.sh"]
     launchd["launchd LaunchAgent<br/>(autostart.sh)"]
 
     subgraph server["app.py — one Python process"]
@@ -330,12 +330,13 @@ flowchart LR
     mac["macOS<br/>IOKit · CoreGraphics"]
     nc["Notification Center"]
 
-    tab -- "fetch every 10 s<br/>+ on actions" --> api
-    plugin -- "every 30 s<br/>+ Start/Stop" --> api
+    tab -- "/api/wait (held open until<br/>something changes) + actions" --> api
+    plugin -- "on refresh<br/>+ Start/Stop" --> api
+    server -. "swiftbar://refreshplugin<br/>on change / minute flip" .-> plugin
     api --> db
     watcher -- "away periods" --> db
     watcher -- "lock / idle / display<br/>(ctypes, no subprocess)" --> mac
-    watcher -. "last_reminder via /api/status" .-> tab
+    watcher -. "last_reminder via /api/wait" .-> tab
     tab -- "Web Notification" --> nc
     watcher -- "osascript fallback<br/>(no tab open)" --> nc
     launchd -- "starts at login,<br/>restarts on exit" --> server
@@ -347,12 +348,13 @@ flowchart LR
   plus (on macOS) a daemon thread — the *come-back watcher*. All times are stored as local ISO-8601
   strings; sessions spanning midnight are split per day when totals are computed.
 - **The frontend** is plain HTML/CSS/JS with no build step. It renders from `/api/status` (one call
-  returns everything the tiles need), ticks the running clock locally every second, and resyncs every
-  10 s.
+  returns everything the tiles need) and ticks only the running clock's text every second. It doesn't
+  poll: `/api/wait` is held open by the server and answers when anything changes (or after 5 min).
 - **The watcher** checks every 10 s whether the screen is locked, the display is asleep, or the wall
   clock jumped (= the Mac slept). When you're back (unlocked + recent keyboard/trackpad input) it
-  stores the away period and, if no timer runs, bumps `last_reminder`; open tabs see the change on
-  their next poll and show the notification.
+  stores the away period and, if no timer runs, bumps `last_reminder`; that answers the tabs'
+  `/api/wait`, and a tab that may notify confirms with `/api/status?notify=1` and shows it (no
+  confirmation within 15 s → macOS notification instead).
 - **Breaks** don't need their own table: a break splits a session in two, so every total stays
   correct without special cases.
 
@@ -369,6 +371,8 @@ flowchart LR
 | Method & path | Purpose |
 |---|---|
 | `GET /api/status` | Everything for the tiles: today, week, balance, running session, `last_reminder`, `watcher` |
+| `GET /api/wait?v=…` | Held open until something changed since version `v` (max 5 min); replaces polling |
+| `GET /api/menubar` | The SwiftBar plugin's menu text |
 | `POST /api/test-notification` | Settings → *Send test notification* (same path as a real reminder) |
 | `GET /api/goals` · `PUT /api/goals` | Work goal periods; set a new goal from today or a later date on |
 | `DELETE /api/goals/<date>` | Cancel a goal change that hasn't started yet |
@@ -399,15 +403,22 @@ About 1,500 lines in total, across 6 source files.
 
 ## Performance & footprint
 
-Built to run all day without you noticing. Measured on 2026-10-14 on an Apple M5 Pro, macOS 27,
-Python 3.12, Flask 3.1, with one browser tab open:
+Built to run all day without you noticing: nothing polls. Measured on 2026-10-17 on an Apple M5 Pro,
+macOS 27, Python 3.12, Flask 3.1, with the Workflow module, idle with the timer stopped (5-minute
+windows; wakeups = context switches):
 
-| Component | Memory | CPU |
-|---|---|---|
-| Server (`app.py`, incl. watcher) | **26 MB** | 160 ms per 5 min ≈ **0.05 %** of one core |
-| Watcher check (lock + display + idle) | — | **65 µs** every 10 s, no subprocesses |
-| SwiftBar app | 39 MB | ≈ 0.08 % of one core |
-| Menu bar plugin | short-lived | ≈ 59 ms per run every 30 s ≈ 0.2 % of one core (mostly Python start-up) |
+| Component | Memory | CPU | Wakeups |
+|---|---|---|---|
+| Server (`run.py`, incl. watcher) | 41 MB (Flask ≈ 16 MB of it) | 90 ms per 5 min ≈ **0.03 %** of one core | ≈ 0.6/s, all from the watcher's 10 s check |
+| Server accept loop alone | — | 0 | **0** (sleeps until a request comes) |
+| Open tab | — | one `/api/wait` per 5 min while nothing changes | — |
+| SwiftBar app | 78 MB | ≈ 0.01 % | ≈ 0.05/s |
+| Menu bar plugin | 4 MB while it runs | < 10 ms per run; runs only when its text changes: once a minute while the timer runs, never while it's stopped | — |
+
+Before (2026-10-17, same machine): the accept loop woke every 0.5 s (≈ 4 wakeups/s with the watcher),
+the tab polled `/api/status` every 10 s and redrew the tiles every second, and SwiftBar started Python
+for the plugin every 30 s (30 ms CPU and 16 MB per run, 2,880 runs a day) — about 0.17 % of a core
+in total; now about 0.04 %.
 
 | API latency (436 sessions, ~10 months of data) | p50 | p95 |
 |---|---|---|
@@ -420,8 +431,10 @@ only the last 3 sessions' periods. `tracker.log` gets errors and one line per re
 per-request access log, so it grows by a few lines a day.
 
 **Choices that keep it light:** one process, no ORM, no frontend framework; lock/idle state read
-in-process via IOKit instead of spawning `ioreg`; per-second redraws skipped while the tab is hidden;
-the menu bar plugin refreshes every 30 s because it only shows minutes.
+in-process via IOKit instead of spawning `ioreg`; no polling anywhere — tabs hold `/api/wait` open and
+the server has SwiftBar refresh the menu bar only when its text changes (a plugin that stays alive to
+wait would cost more: SwiftBar polls a running plugin many times a second); only the clock's text
+ticks every second, and only while the timer runs and the tab is visible; no infinite CSS animations.
 
 ---
 
@@ -442,7 +455,7 @@ the menu bar plugin refreshes every 30 s because it only shows minutes.
 ```text
 app.py                      backend: API, totals, come-back watcher
 static/                     frontend: index.html, app.js, style.css
-menubar/worktracker.30s.py  SwiftBar plugin (macOS)
+menubar/worktracker.sh      SwiftBar plugin (macOS)
 autostart.sh                LaunchAgent install / remove (macOS)
 docs/                       README images and video
 requirements.txt            Flask

@@ -534,13 +534,90 @@ def snapshot_after_change(response):
     return response
 
 
+# ---------------------------------------------------------------- change feed
+
+# Nothing polls: tabs hold a request open (/api/wait) that answers as soon as `version` moves — any
+# change, a reminder, coming back to the Mac — and the menu bar is refreshed from here (menubar_pusher).
+changed = threading.Condition()
+version = 0
+
+
+def bump():
+    global version
+    with changed:
+        version += 1
+        changed.notify_all()
+
+
+@app.after_request
+def bump_after_change(response):
+    if request.method != "GET" and response.status_code < 400:
+        bump()
+    return response
+
+
+def wait_change(since: int, timeout: float) -> int:
+    """Block until `version` differs from `since` (at most `timeout` s); the current version."""
+    with changed:
+        changed.wait_for(lambda: version != since, max(0, timeout))
+        return version
+
+
+@app.get("/api/wait")
+def wait():
+    """Long poll for open tabs; v=-1 answers at once. After 5 min it answers anyway (the tab asks again)."""
+    return jsonify({"version": wait_change(request.args.get("v", -1, type=int), 300)})
+
+
+def menubar_wait() -> float:
+    """Seconds until the menu bar text would change by itself: the shown minute flips (timer running)
+    or the day changes (Today in the menu)."""
+    with sqlite3.connect(DB_PATH) as db:
+        start = db.execute("SELECT start_time FROM sessions WHERE end_time IS NULL").fetchone()
+    now = datetime.now()
+    if start:
+        return 60 - (now - parse(start[0])).total_seconds() % 60
+    return (datetime.combine(now.date() + timedelta(days=1), time.min) - now).total_seconds()
+
+
+def menubar_pusher():
+    """Have SwiftBar re-run menubar/worktracker.sh when its text changes, instead of it running the
+    plugin on an interval. (A plugin that stays alive to wait costs more: SwiftBar polls it.)"""
+    seen = -1
+    while True:
+        seen = wait_change(seen, menubar_wait() + 0.2)
+        subprocess.run(["open", "-g", "swiftbar://refreshplugin?name=worktracker"], capture_output=True)  # no SwiftBar: no-op
+
+
+@app.get("/api/menubar")
+def menubar():
+    """The SwiftBar plugin's output; @ME@ stands for the plugin's path (for the Start/Stop items)."""
+    st = status().get_json()
+    run = st["running"]
+    dur = lambda sec, sign=False: (("+" if sec > 0 else "−" if sec < 0 else "±") if sign else "") + fmt_dur(abs(sec))
+    if run:
+        lines = ["%d:%02d | sfimage=timer" % (run["seconds"] // 3600, run["seconds"] % 3600 // 60), "---",
+                 "Running since %s%s" % (run["start_time"][11:16], " · " + run["note"] if run["note"] else ""),
+                 "Stop | bash=@ME@ param1=stop terminal=false sfimage=stop.fill"]
+    else:
+        lines = ["| sfimage=timer", "---",
+                 "Start | bash=@ME@ param1=start terminal=false sfimage=play.fill",
+                 "Start with note… | bash=@ME@ param1=start-note terminal=false sfimage=square.and.pencil"]
+    lines += ["---",
+              "Today: %s / %s" % (dur(st["today_seconds"]), dur(st["daily_target"])),
+              "Week: %s / %s" % (dur(st["week_seconds"]), dur(st["weekly_target"])),
+              "Overtime incl. today: %s" % dur(st["balance_seconds"] + st["today_seconds"] - st["daily_target"], sign=True),
+              "---", "Open tracker | href=%s sfimage=safari" % URL]
+    return "\n".join(lines) + "\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 # ---------------------------------------------------------------- wake reminder (macOS)
 
 URL = f"http://localhost:{os.environ.get('PORT', 47474)}"
 last_reminder = 0.0  # time of the last reminder; open tracker tabs show a notification when it changes
 reminder_kind = "comeback"  # or "test" (Settings → Send test notification)
 watcher_running = False
-tab_seen_at = 0.0   # last /api/status poll from a tab that is allowed to notify
+tab_seen_at = 0.0   # last /api/status?notify=1 from a tab that is allowed to notify
 
 
 def log(msg):
@@ -555,9 +632,12 @@ def remind():
         log("reminder skipped: timer running")
         return
     last_reminder, reminder_kind = clock.time(), "comeback"
-    if clock.time() - tab_seen_at > 30:
-        clock.sleep(15)  # after a wake the tab may not have polled yet
-    if clock.time() - tab_seen_at <= 30:
+    bump()  # wakes the tabs; one that may notify fetches /api/status?notify=1 and shows it
+    for _ in range(15):  # after a wake, the tab may need a moment to reconnect
+        if tab_seen_at >= last_reminder:
+            break
+        clock.sleep(1)
+    if tab_seen_at >= last_reminder:
         log("reminder → browser tab")
     else:  # no tab open → macOS notification (click opens Script Editor)
         log("reminder → no tab with notifications enabled, macOS notification")
@@ -674,9 +754,19 @@ def wake_watcher():
         if pending and not locked and recently_active():
             log("back")
             record_away(away_since, now, away_reason)
+            bump()
             remind()
             pending = False
         prev = now
+
+
+def serve(wsgi_app):
+    """Like app.run(), but the accept loop sleeps until a request comes: werkzeug's default wakes
+    every 0.5 s to check for a shutdown that never comes (it runs until the Mac shuts down)."""
+    from werkzeug.serving import make_server
+    port = int(os.environ.get("PORT", 47474))
+    print(f" * Running on http://localhost:{port}", file=sys.stderr, flush=True)
+    make_server("localhost", port, wsgi_app, threaded=True).serve_forever(poll_interval=None)
 
 
 init_db()
@@ -685,4 +775,6 @@ if __name__ == "__main__":
     if sys.platform == "darwin" and os.environ.get("WAKE_PROMPT", "1") == "1":
         watcher_running = True
         threading.Thread(target=wake_watcher, daemon=True).start()
-    app.run(host="localhost", port=int(os.environ.get("PORT", 47474)), debug=False)
+    if sys.platform == "darwin":
+        threading.Thread(target=menubar_pusher, daemon=True).start()
+    serve(app)

@@ -5,7 +5,7 @@ const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 let status = null;        // last /api/status response
-let fetchedAt = 0;        // performance.now() when status was fetched
+let fetchedAt = 0;        // Date.now() when status was fetched (wall clock: keeps counting through sleep)
 let selectedDay = null;   // "YYYY-MM-DD" shown in the day panel
 let editingId = null;     // session id being edited in the form
 
@@ -76,14 +76,13 @@ async function loadStatus() {
     else notify("Work Tracker – Working?", "No timer running — click to start.");
   }
   seenReminder = status.last_reminder;
-  fetchedAt = performance.now();
-  renderStatus();
-  renderWeek();
+  fetchedAt = Date.now();
+  if (!document.hidden) { renderStatus(); renderWeek(); }  // visibilitychange catches up
 }
 
 /** Seconds elapsed since the status was fetched (only counts while running). */
 function liveExtra() {
-  return status && status.running ? (performance.now() - fetchedAt) / 1000 : 0;
+  return status && status.running ? (Date.now() - fetchedAt) / 1000 : 0;
 }
 
 function renderStatus() {
@@ -657,18 +656,37 @@ async function init() {
   await refreshAll();
   renderSettings();
 
-  // Tick the live numbers every second; resync with the server every 10s (also picks up reminders).
+  // Only the clock shows seconds, so only it ticks; the rest shows minutes and is redrawn every 30s
+  // (bars don't re-animate every second). Nothing ticks while the timer is stopped or the tab hidden.
+  let ticks = 0;
   setInterval(() => {
-    if (status && status.running && !document.hidden) { renderStatus(); renderWeek(); }
+    if (!status || !status.running || document.hidden) return;
+    if (++ticks % 30) $("clock").textContent = fmtClock(status.running.seconds + liveExtra());
+    else { renderStatus(); renderWeek(); }
   }, 1000);
-  setInterval(async () => {
-    const prevToday = status.today;
-    await loadStatus();
-    if (status.today !== prevToday) {
-      $("today-label").textContent = fmtLongDate(parseYmd(status.today));
-      await refreshAll();
+  watchChanges();
+}
+
+// No polling: /api/wait answers when something changes (Start/Stop anywhere, a reminder, coming back
+// to the Mac) or after 5 min, which also catches a new day.
+async function watchChanges() {
+  let version = -1;
+  for (;;) {
+    try {
+      const v = (await api("GET", `/api/wait?v=${version}`)).version;
+      if (version === -1) { version = v; continue; }  // the first answer just hands out the current version
+      const prevToday = status.today;
+      await loadStatus();
+      if (status.today !== prevToday) {
+        $("today-label").textContent = fmtLongDate(parseYmd(status.today));
+        await refreshAll();
+      }
+      if (v !== version) document.dispatchEvent(new Event("tracker:changed"));  // e.g. the Workflow board
+      version = v;  // only once handled: a failed reload asks again
+    } catch {
+      await new Promise((r) => setTimeout(r, 5000));  // server restarting or the Mac just woke up
     }
-  }, 10000);
+  }
 }
 
 init().catch((e) => {
