@@ -598,11 +598,11 @@ def menubar():
     if run:
         lines = ["%d:%02d | sfimage=timer" % (run["seconds"] // 3600, run["seconds"] % 3600 // 60), "---",
                  "Running since %s%s" % (run["start_time"][11:16], " · " + run["note"] if run["note"] else ""),
-                 "Stop | bash=@ME@ param1=stop terminal=false sfimage=stop.fill"]
+                  "Stop | bash='@ME@' param1=stop terminal=false sfimage=stop.fill"]
     else:
         lines = ["| sfimage=timer", "---",
-                 "Start | bash=@ME@ param1=start terminal=false sfimage=play.fill",
-                 "Start with note… | bash=@ME@ param1=start-note terminal=false sfimage=square.and.pencil"]
+                  "Start | bash='@ME@' param1=start terminal=false sfimage=play.fill",
+                  "Start with note… | bash='@ME@' param1=start-note terminal=false sfimage=square.and.pencil"]
     lines += ["---",
               "Today: %s / %s" % (dur(st["today_seconds"]), dur(st["daily_target"])),
               "Week: %s / %s" % (dur(st["week_seconds"]), dur(st["weekly_target"])),
