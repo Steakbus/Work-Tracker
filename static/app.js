@@ -108,7 +108,9 @@ function renderStatus() {
   $("today-target").textContent = todayTarget ? fmtDur(todayTarget).replace(" 00m", "") : "0h";
   $("today-bar").style.width = todayTarget ? Math.min(100, (todaySec / todayTarget) * 100) + "%" : "0";
   const todayLeft = Math.max(0, todayTarget - todaySec);
-  if (!todayTarget) {
+  if (status.today_off) {
+    $("today-remaining").textContent = `${OFF_LABEL[status.today_off]} — no target today`;
+  } else if (!todayTarget) {
     $("today-remaining").textContent = "Weekend — no target today";
   } else if (todayLeft <= 0) {
     $("today-remaining").textContent = `Done! ${fmtDur(todaySec - todayTarget)} overtime`;
@@ -149,7 +151,8 @@ function renderWeek() {
   status.week_days.forEach((d, i) => {
     const sec = d.seconds + (d.date === status.today ? liveExtra() : 0);
     const col = document.createElement("div");
-    col.className = "day-col" + (d.date === status.today ? " today" : "");
+    col.className = "day-col" + (d.date === status.today ? " today" : "") + (d.off ? " " + d.off : "");
+    if (d.off) col.title = OFF_LABEL[d.off];
     col.innerHTML = `
       <div class="track">
         <div class="fill" style="height:${(sec / maxSec) * 100}%"></div>
@@ -158,6 +161,7 @@ function renderWeek() {
       <div class="name">${DAY_NAMES[i]}</div>
       <div class="hours">${fmtDur(sec)}</div>`;
     col.addEventListener("click", () => selectDay(d.date));
+    col.addEventListener("contextmenu", (e) => openDayOffMenu(e, d.date, d.off));
     wrap.appendChild(col);
   });
 }
@@ -221,23 +225,36 @@ async function renderHeatmap() {
   const today = parseYmd(status.today);
   const { start, end, label } = heatmapRange();
   const fetchEnd = end > today ? today : end;
-  const totals = await api("GET", `/api/days?from=${ymd(start)}&to=${ymd(fetchEnd)}`);
+  const [totals, off] = await Promise.all([
+    api("GET", `/api/days?from=${ymd(start)}&to=${ymd(fetchEnd)}`),
+    api("GET", `/api/days-off?from=${ymd(start)}&to=${ymd(end)}`),
+  ]);
 
   const grid = $("heatmap");
   grid.innerHTML = "";
 
+  // Rows only for workdays (this week's goal), plus any weekday that has work in the range
+  const shown = new Set(status.week_days.flatMap((d, i) => (d.workday ? [i] : [])));
+  for (const [key, sec] of Object.entries(totals)) if (sec > 0) shown.add(weekdayIdx(parseYmd(key)));
+  for (const key of Object.keys(off)) shown.add(weekdayIdx(parseYmd(key)));
+  if (!shown.size) [0, 1, 2, 3, 4, 5, 6].forEach((i) => shown.add(i));
+  const rowOf = {};
+  [...shown].sort().forEach((wd, r) => (rowOf[wd] = r + 2));
+  grid.style.gridTemplateRows = `16px repeat(${shown.size}, 11px)`;
+
   // Weekday labels in column 1
-  ["Mon", "", "Wed", "", "Fri", "", ""].forEach((name, i) => {
+  for (const [wd, row] of Object.entries(rowOf)) {
     const el = document.createElement("div");
     el.className = "weekday";
-    el.style.gridRow = i + 2;
-    el.textContent = name;
+    el.style.gridRow = row;
+    el.textContent = DAY_NAMES[wd];
     grid.appendChild(el);
-  });
+  }
 
   const gridStart = addDays(start, -weekdayIdx(start));
   const gridEnd = addDays(end, 6 - weekdayIdx(end));
   let total = 0, activeDays = 0, lastMonthCol = -10;
+  const offCount = { vacation: 0, sick: 0 };
 
   for (let i = 0, d = gridStart; d <= gridEnd; i++, d = addDays(gridStart, i)) {
     const col = 2 + Math.floor(i / 7);
@@ -255,16 +272,17 @@ async function renderHeatmap() {
       lastMonthCol = col;
     }
 
+    if (!rowOf[weekdayIdx(d)]) continue;
     const cell = document.createElement("div");
     cell.style.gridColumn = col;
-    cell.style.gridRow = weekdayIdx(d) + 2;
+    cell.style.gridRow = rowOf[weekdayIdx(d)];
     if (!inRange) {
       cell.className = "cell pad";
-    } else if (d > today) {
-      cell.className = "cell future";
     } else {
-      cell.className = `cell l${level(sec)}` + (key === selectedDay ? " selected" : "");
-      cell.dataset.date = key;
+      cell.className = "cell " + (off[key] || (d > today ? "future" : `l${level(sec)}`))
+        + (key === selectedDay ? " selected" : "");
+      if (off[key]) { cell.dataset.off = off[key]; offCount[off[key]]++; }
+      cell.dataset.date = key;  // future days too: right-click plans a day off
       cell.dataset.sec = sec;
       total += sec;
       if (sec > 0) activeDays++;
@@ -273,7 +291,11 @@ async function renderHeatmap() {
   }
 
   $("heatmap-title").textContent = `${fmtDur(total)} worked ${label}`;
-  $("heatmap-summary").textContent = `${activeDays} active day${activeDays === 1 ? "" : "s"}`;
+  $("heatmap-summary").textContent = [
+    `${activeDays} active day${activeDays === 1 ? "" : "s"}`,
+    offCount.vacation && `${offCount.vacation} vacation day${offCount.vacation === 1 ? "" : "s"}`,
+    offCount.sick && `${offCount.sick} sick day${offCount.sick === 1 ? "" : "s"}`,
+  ].filter(Boolean).join(" · ");
 }
 
 const tooltip = $("tooltip");
@@ -281,13 +303,21 @@ $("heatmap").addEventListener("mouseover", (e) => {
   const c = e.target.closest(".cell[data-date]");
   if (!c) { tooltip.hidden = true; return; }
   const sec = Number(c.dataset.sec);
-  tooltip.textContent = `${sec ? fmtDur(sec) : "No work"} on ${fmtLongDate(parseYmd(c.dataset.date))}`;
+  const what = [
+    c.dataset.off && OFF_LABEL[c.dataset.off],
+    sec ? fmtDur(sec) : !c.dataset.off && c.dataset.date <= status.today && "No work",
+  ].filter(Boolean).join(" · ");
+  tooltip.textContent = (what ? what + " on " : "") + fmtLongDate(parseYmd(c.dataset.date));
   const r = c.getBoundingClientRect();
   tooltip.style.left = r.left + r.width / 2 + "px";
   tooltip.style.top = r.top - 6 + "px";
   tooltip.hidden = false;
 });
 $("heatmap").addEventListener("mouseleave", () => (tooltip.hidden = true));
+$("heatmap").addEventListener("contextmenu", (e) => {
+  const c = e.target.closest(".cell[data-date]");
+  if (c) openDayOffMenu(e, c.dataset.date, c.dataset.off);
+});
 $("heatmap").addEventListener("click", (e) => {
   const c = e.target.closest(".cell[data-date]");
   if (c) selectDay(c.dataset.date);
@@ -309,6 +339,7 @@ async function loadDay() {
   const sessions = await api("GET", `/api/sessions?date=${selectedDay}`);
   const day = parseYmd(selectedDay);
   $("day-title").textContent = fmtLongDate(day);
+  renderDayOff((await api("GET", `/api/days-off?from=${selectedDay}&to=${selectedDay}`))[selectedDay]);
 
   const list = $("day-sessions");
   list.innerHTML = "";
@@ -351,6 +382,101 @@ async function loadDay() {
     list.appendChild(li);
   }
 }
+
+// ------------------------------------------------------------ vacation + sick days
+
+const OFF_LABEL = { vacation: "Vacation", sick: "Sick day" };
+
+/** Under the day title: the day's vacation / sick mark with Remove; nothing on other days. */
+function renderDayOff(kind) {
+  const box = $("day-off");
+  box.innerHTML = "";
+  if (!kind) return;
+  box.innerHTML = `<b class="${kind}-text">${OFF_LABEL[kind]}</b><span class="muted">no target on this day</span>
+    <button type="button" class="btn link">Remove</button>`;
+  box.querySelector("button").onclick = () => setDayOff(selectedDay, null);
+}
+
+async function setDayOff(from, kind, to = from) {
+  if (kind) await api("PUT", "/api/days-off", { from, to, kind });
+  else {
+    const off = await api("GET", `/api/days-off?from=${from}&to=${to}`);
+    await Promise.all(Object.keys(off).map((d) => api("DELETE", `/api/days-off/${d}`)));
+  }
+  await refreshAll();
+}
+
+/** Right-click on a day (calendar or week), or drag over days in the calendar: mark the day, or it up to
+ *  "until", as vacation / sick; or remove. `kind` is the first day's mark, `anyOff` whether any day has one. */
+function openDayOffMenu(e, day, kind, untilDay = day, anyOff = !!kind) {
+  e.preventDefault();
+  e.stopPropagation();
+  tooltip.hidden = true;
+  const title = untilDay === day ? fmtLongDate(parseYmd(day))
+    : `${fmtLongDate(parseYmd(day))} – ${fmtLongDate(parseYmd(untilDay))}`;
+  const removeText = untilDay !== day ? "Remove days off" : kind && `Remove ${OFF_LABEL[kind].toLowerCase()}`;
+  timeMenu.innerHTML = `<b class="small">${title}</b>
+    <button class="btn link" data-k="vacation">Vacation</button>
+    <button class="btn link" data-k="sick">Sick day</button>
+    <label class="small muted">until <input type="date" value="${untilDay}" min="${day}" title="Enter: ${OFF_LABEL[kind || "vacation"].toLowerCase()}"></label>
+    ${anyOff ? `<button class="btn link" data-k="">${removeText}</button>` : ""}
+    <span class="small error"></span>`;
+  const until = timeMenu.querySelector("input");
+  const apply = async (k) => {
+    try {
+      await setDayOff(day, k || null, until.value || day);
+      timeMenu.hidden = true;
+    } catch (err) {
+      timeMenu.querySelector(".error").textContent = err.message;
+    }
+  };
+  timeMenu.onclick = (ev) => { if (ev.target.dataset.k !== undefined) apply(ev.target.dataset.k); };
+  // Enter in "until" takes the date: keeps the day's kind, otherwise vacation. Escape closes the menu.
+  timeMenu.onkeydown = (ev) => {
+    if (ev.key === "Enter" && ev.target === until) { ev.preventDefault(); apply(kind || "vacation"); }
+    if (ev.key === "Escape") { timeMenu.hidden = true; clearRange(); }
+  };
+  timeMenu.style.left = e.pageX + "px";
+  timeMenu.style.top = e.pageY + 10 + "px";
+  timeMenu.hidden = false;
+  until.focus();
+}
+document.addEventListener("contextmenu", (e) => { if (!timeMenu.contains(e.target)) timeMenu.hidden = true; });
+
+// Hold the left button and drag over calendar days to mark them all at once.
+let drag = null;        // { from, to } dates while dragging
+let dragged = false;    // swallow the click that ends a drag (it would close the menu)
+const clearRange = () => document.querySelectorAll(".heatmap .cell.ranged").forEach((c) => c.classList.remove("ranged"));
+const rangeCells = (a, b) => [...document.querySelectorAll(".heatmap .cell[data-date]")]
+  .filter((c) => c.dataset.date >= a && c.dataset.date <= b);
+
+$("heatmap").addEventListener("mousedown", (e) => {
+  const c = e.target.closest(".cell[data-date]");
+  if (e.button !== 0 || !c) return;
+  e.preventDefault();  // no text selection while dragging
+  clearRange();
+  drag = { from: c.dataset.date, to: c.dataset.date };
+});
+$("heatmap").addEventListener("mouseover", (e) => {
+  const c = e.target.closest(".cell[data-date]");
+  if (!drag || !c || c.dataset.date === drag.to) return;
+  drag.to = c.dataset.date;
+  const [a, b] = [drag.from, drag.to].sort();
+  clearRange();
+  rangeCells(a, b).forEach((x) => x.classList.add("ranged"));
+});
+document.addEventListener("mouseup", (e) => {
+  if (!drag) return;
+  const [a, b] = [drag.from, drag.to].sort();
+  drag = null;
+  if (a === b) return;  // a plain click: shows the day
+  dragged = true;
+  setTimeout(() => (dragged = false));  // the click (if any) comes right after this mouseup
+  const cells = rangeCells(a, b);
+  openDayOffMenu(e, a, cells[0].dataset.off, b, cells.some((c) => c.dataset.off));
+});
+window.addEventListener("click", (e) => { if (dragged) { dragged = false; e.stopPropagation(); } }, true);
+document.addEventListener("click", () => { if (timeMenu.hidden) clearRange(); });
 
 /** "HH:MM" on the selected day, otherwise "MM-DD HH:MM". */
 const when = (iso) => iso.slice(0, 10) === selectedDay ? hhmm(iso) : iso.slice(5, 16).replace("T", " ");

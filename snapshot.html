@@ -11,12 +11,14 @@
     --bg: #f6f8fa; --card: #fff; --border: #d0d7de; --text: #1f2328; --muted: #656d76;
     --accent: #1f883d; --danger: #cf222e;
     --l0: #ebedf0; --l1: #9be9a8; --l2: #40c463; --l3: #30a14e; --l4: #216e39;
+    --vacation: #54aeff; --sick: #fb8f44; --vacation-text: #0969da; --sick-text: #bc4c00;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8d96a0;
       --accent: #2ea043; --danger: #f85149;
       --l0: #21262d; --l1: #0e4429; --l2: #006d32; --l3: #26a641; --l4: #39d353;
+      --vacation: #1f6feb; --sick: #db6d28; --vacation-text: #58a6ff; --sick-text: #f0883e;
     }
   }
   * { box-sizing: border-box; }
@@ -49,6 +51,8 @@
   .heat .none { background: transparent; }
   .heat .l1 { background: var(--l1); } .heat .l2 { background: var(--l2); }
   .heat .l3 { background: var(--l3); } .heat .l4 { background: var(--l4); }
+  .heat .vacation { background: var(--vacation); } .heat .sick { background: var(--sick); }
+  .vacation-text { color: var(--vacation-text); } .sick-text { color: var(--sick-text); }
   .legend { display: flex; gap: 3px; align-items: center; justify-content: flex-end; margin-top: 8px; }
   .legend span { width: 10px; height: 10px; border-radius: 2px; }
 
@@ -104,8 +108,9 @@
 
   <section class="card">
     <h2>Last 6 months</h2>
-    <div class="heat">$heat</div>
-    <div class="legend muted small">less <span style="background: var(--l0)"></span><span style="background: var(--l1)"></span><span style="background: var(--l2)"></span><span style="background: var(--l3)"></span><span style="background: var(--l4)"></span> more</div>
+    <div class="heat" style="grid-template-rows: repeat($heat_rows, 1fr)">$heat</div>
+    <div class="legend muted small">less <span style="background: var(--l0)"></span><span style="background: var(--l1)"></span><span style="background: var(--l2)"></span><span style="background: var(--l3)"></span><span style="background: var(--l4)"></span> more
+      &nbsp; <span style="background: var(--vacation)"></span> vacation &nbsp; <span style="background: var(--sick)"></span> sick</div>
   </section>
 
   <section class="card">

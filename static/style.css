@@ -11,6 +11,10 @@
   --l2: #40c463;
   --l3: #30a14e;
   --l4: #216e39;
+  --vacation: #54aeff;
+  --sick: #fb8f44;
+  --vacation-text: #0969da;
+  --sick-text: #bc4c00;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -27,6 +31,10 @@
     --l2: #006d32;
     --l3: #26a641;
     --l4: #39d353;
+    --vacation: #1f6feb;
+    --sick: #db6d28;
+    --vacation-text: #58a6ff;
+    --sick-text: #f0883e;
   }
 }
 
@@ -135,12 +143,25 @@ input, select {
 .cell.pad { visibility: hidden; }
 .cell.future { opacity: .4; cursor: default; }
 .cell.selected { outline: 2px solid var(--text); outline-offset: 0; }
+.cell.ranged { outline: 2px solid var(--accent); outline-offset: 0; }
 .l1 { background: var(--l1); }
 .l2 { background: var(--l2); }
 .l3 { background: var(--l3); }
 .l4 { background: var(--l4); }
 .legend { display: inline-flex; align-items: center; gap: 3px; }
 .legend .cell { display: inline-block; }
+.legend .cell.vacation { margin-left: 8px; }
+.cell.vacation, .day-col.vacation .track { background: var(--vacation); }
+.cell.sick, .day-col.sick .track { background: var(--sick); }
+.vacation-text { color: var(--vacation-text); }
+.sick-text { color: var(--sick-text); }
+
+/* Vacation / sick mark in the day panel (set by right-clicking a day) */
+.day-off { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 10px; }
+.day-off:empty { display: none; }
+.time-menu label { display: flex; align-items: center; gap: 6px; padding: 2px 4px; }
+.time-menu input[type="date"] { width: auto; padding: 2px 6px; }
+.time-menu .error:empty { display: none; }
 
 .tooltip {
   position: fixed;

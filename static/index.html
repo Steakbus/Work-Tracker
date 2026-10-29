@@ -87,16 +87,17 @@
         <div id="heatmap" class="heatmap"></div>
       </div>
       <div class="row-between small muted">
-        <span id="heatmap-summary"></span>
+        <span><span id="heatmap-summary"></span> · right-click a day, or drag over days, for vacation or sick</span>
         <span class="legend">Less
           <i class="cell l0"></i><i class="cell l1"></i><i class="cell l2"></i><i class="cell l3"></i><i class="cell l4"></i>
-          More</span>
+          More <i class="cell vacation"></i> Vacation <i class="cell sick"></i> Sick</span>
       </div>
     </section>
 
     <!-- Day detail -->
     <section class="card">
       <h2 id="day-title">Day</h2>
+      <div id="day-off" class="day-off small"></div>
       <ul id="day-sessions" class="sessions"></ul>
       <form id="session-form" class="session-form">
         <label>Start <input type="datetime-local" id="f-start" required></label>
