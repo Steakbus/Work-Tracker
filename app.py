@@ -65,6 +65,11 @@ def init_db():
                 daily_seconds INTEGER NOT NULL,
                 workdays      TEXT NOT NULL         -- weekday digits, Monday = 0, e.g. "01234"
             );
+            -- Vacation and sick days: no target on that day, so they don't cost overtime.
+            CREATE TABLE IF NOT EXISTS days_off (
+                day   TEXT PRIMARY KEY,             -- YYYY-MM-DD
+                kind  TEXT NOT NULL                 -- vacation | sick
+            );
             """
         )
 
@@ -130,15 +135,23 @@ def goal_table() -> list:
     ]
 
 
-def day_target(day: date, table: list) -> int:
-    """Target seconds for one day under the goal that was valid on that day."""
+DAY_OFF_KINDS = ("vacation", "sick")
+
+
+def days_off() -> dict:
+    """Vacation and sick days: YYYY-MM-DD -> kind."""
+    return {r["day"]: r["kind"] for r in get_db().execute("SELECT * FROM days_off")}
+
+
+def day_target(day: date, table: list, off: dict) -> int:
+    """Target seconds for one day under the goal that was valid on that day; 0 on a day off."""
     _, daily, workdays = next(g for g in reversed(table) if g[0] <= day)
-    return daily if day.weekday() in workdays else 0
+    return daily if day.weekday() in workdays and day.isoformat() not in off else 0
 
 
-def expected_seconds(first: date, last: date, table: list) -> int:
+def expected_seconds(first: date, last: date, table: list, off: dict) -> int:
     """Target seconds for all days in [first, last]."""
-    return sum(day_target(first + timedelta(days=i), table) for i in range((last - first).days + 1))
+    return sum(day_target(first + timedelta(days=i), table, off) for i in range((last - first).days + 1))
 
 
 def running_session():
@@ -172,9 +185,9 @@ def status():
     week = daily_totals(monday, monday + timedelta(days=6))
     today_s = week.get(today.isoformat(), 0)
     week_s = sum(week.values())
-    goals = goal_table()
-    today_target = day_target(today, goals)
-    week_targets = [day_target(monday + timedelta(days=i), goals) for i in range(7)]
+    goals, off = goal_table(), days_off()
+    today_target = day_target(today, goals, off)
+    week_targets = [day_target(monday + timedelta(days=i), goals, off) for i in range(7)]
     weekly_target = sum(week_targets)
 
     # Overtime balance: everything worked before today vs. target before today.
@@ -187,7 +200,7 @@ def status():
         yesterday = today - timedelta(days=1)
         if first_day <= yesterday:
             worked = sum(daily_totals(first_day, yesterday).values())
-            balance = worked - expected_seconds(first_day, yesterday, goals)
+            balance = worked - expected_seconds(first_day, yesterday, goals, off)
 
     run = running_session()
     return jsonify({
@@ -198,6 +211,7 @@ def status():
         "today_seconds": today_s,
         "week_seconds": week_s,
         "today_remaining": max(0, today_target - today_s),
+        "today_off": off.get(today.isoformat()),
         "week_remaining": max(0, weekly_target - week_s),
         "balance_seconds": balance,
         "first_year": first_year,
@@ -206,6 +220,8 @@ def status():
                 "date": (monday + timedelta(days=i)).isoformat(),
                 "seconds": week.get((monday + timedelta(days=i)).isoformat(), 0),
                 "target": week_targets[i],
+                "workday": day_target(monday + timedelta(days=i), goals, {}) > 0,
+                "off": off.get((monday + timedelta(days=i)).isoformat()),
             }
             for i in range(7)
         ],
@@ -263,6 +279,54 @@ def delete_goal(valid_from):
     db.execute("DELETE FROM targets WHERE valid_from = ?", (valid_from,))
     db.commit()
     return get_goals()
+
+
+@app.get("/api/days-off")
+def get_days_off():
+    """Vacation and sick days in a range: /api/days-off?from=YYYY-MM-DD&to=YYYY-MM-DD -> {day: kind}"""
+    try:
+        first = parse_day(request.args["from"])
+        last = parse_day(request.args["to"])
+    except (KeyError, ValueError):
+        return bad_request("Use ?from=YYYY-MM-DD&to=YYYY-MM-DD")
+    rows = get_db().execute("SELECT * FROM days_off WHERE day BETWEEN ? AND ?",
+                            (first.isoformat(), last.isoformat()))
+    return jsonify({r["day"]: r["kind"] for r in rows})
+
+
+@app.put("/api/days-off")
+def set_days_off():
+    """Mark the workdays in [from, to] as vacation or sick days; weekends in a range are skipped."""
+    data = request.get_json(silent=True) or {}
+    try:
+        first = parse_day(data["from"])
+        last = parse_day(data.get("to") or data["from"])
+        kind = data["kind"]
+    except (KeyError, TypeError, ValueError):
+        return bad_request("from, to (YYYY-MM-DD) and kind are required.")
+    if kind not in DAY_OFF_KINDS:
+        return bad_request("kind is vacation or sick.")
+    if last < first:
+        return bad_request("The end date is before the start date.")
+    if (last - first).days > 366:
+        return bad_request("Range too large.")
+    goals = goal_table()
+    days = [d for d in (first + timedelta(days=i) for i in range((last - first).days + 1))
+            if day_target(d, goals, {})]
+    if not days:
+        return bad_request("There are no workdays in that range.")
+    db = get_db()
+    db.executemany("INSERT OR REPLACE INTO days_off VALUES (?, ?)", [(d.isoformat(), kind) for d in days])
+    db.commit()
+    return jsonify({d.isoformat(): kind for d in days})
+
+
+@app.delete("/api/days-off/<day>")
+def delete_day_off(day):
+    db = get_db()
+    db.execute("DELETE FROM days_off WHERE day = ?", (day,))
+    db.commit()
+    return "", 204
 
 
 @app.post("/api/start")
@@ -444,11 +508,14 @@ def fmt_dur(sec: int) -> str:
     return f"{sign}{sec // 3600}h {sec % 3600 // 60:02d}m"
 
 
+OFF_LABEL = {"vacation": "Vacation", "sick": "Sick"}
+
+
 def write_snapshot():
     """Fill snapshot.html with the current stats and days; readable in the phone's file viewer (no JS)."""
     st = status().get_json()
     today = date.today()
-    goals = goal_table()
+    goals, off = goal_table(), days_off()
 
     def signed(sec):
         return ("+" if sec >= 0 else "") + fmt_dur(sec)
@@ -462,18 +529,24 @@ def write_snapshot():
     def level(sec):
         return 0 if sec <= 0 else 1 if sec < 2 * 3600 else 2 if sec < 5 * 3600 else 3 if sec < 8 * 3600 else 4
 
-    # Heatmap: 26 weeks, Monday-first columns.
+    # Heatmap: 26 weeks, Monday-first columns; rows only for workdays and weekdays that have work.
     first = today - timedelta(days=today.weekday() + 25 * 7)
     totals = daily_totals(first, today)
+    shown = {i for i, d in enumerate(st["week_days"]) if d["workday"]}
+    shown |= {parse_day(k).weekday() for k, sec in totals.items() if sec}
+    shown = shown or set(range(7))
     heat = "".join(
-        f'<span class="l{level(totals.get(d.isoformat(), 0))}"></span>' if d <= today else '<span class="none"></span>'
-        for d in (first + timedelta(days=i) for i in range(26 * 7))
+        f'<span class="{off.get(d.isoformat()) or "l%d" % level(totals.get(d.isoformat(), 0))}"></span>'
+        if d <= today else f'<span class="{off.get(d.isoformat(), "none")}"></span>'
+        for d in (first + timedelta(days=i) for i in range(26 * 7)) if d.weekday() in shown
     )
 
     week_rows = "".join(
         f'<span class="{"today" if d["date"] == st["today"] else ""}">{parse_day(d["date"]):%a}</span>'
         f'<div class="bar"><div style="width: {pct(d["seconds"], d["target"] or 8 * 3600)}%"></div></div>'
-        f'<span class="small">{fmt_dur(d["seconds"])} <span class="muted">/ {fmt_dur(d["target"])}</span></span>'
+        + (f'<span class="small">{fmt_dur(d["seconds"])} <span class="{d["off"]}-text">{OFF_LABEL[d["off"]]}</span></span>'
+           if d["off"] else
+           f'<span class="small">{fmt_dur(d["seconds"])} <span class="muted">/ {fmt_dur(d["target"])}</span></span>')
         for d in st["week_days"]
     )
 
@@ -493,11 +566,13 @@ def write_snapshot():
     months: dict = {}
     for i in range((today - since).days + 1):
         d = today - timedelta(days=i)
-        worked, target = totals.get(d.isoformat(), 0), day_target(d, goals)
-        if worked or target:
+        worked, target, kind = totals.get(d.isoformat(), 0), day_target(d, goals, off), off.get(d.isoformat())
+        if worked or target or kind:
+            delta = (f'<span class="delta {kind}-text">{OFF_LABEL[kind]}</span>' if kind and not worked else
+                     f'<span class="delta {tone(worked - target)}">{signed(worked - target)}</span>')
             months.setdefault(f"{d:%B %Y}", []).append(
                 f'<details class="day"><summary><span>{d:%a %d.%m.}</span><span>{fmt_dur(worked)}</span>'
-                f'<span class="delta {tone(worked - target)}">{signed(worked - target)}</span></summary>'
+                f'{delta}</summary>'
                 f'<ul class="sessions">{"".join(sessions.get(d.isoformat(), [])) or "<li class=muted>No sessions</li>"}</ul>'
                 "</details>"
             )
@@ -516,7 +591,7 @@ def write_snapshot():
             week_pct=pct(st["week_seconds"], st["weekly_target"]),
             balance=signed(st["balance_seconds"]), balance_class=tone(st["balance_seconds"]),
             balance_today=signed(balance_today), balance_today_class=tone(balance_today),
-            week_rows=week_rows, heat=heat, months=month_html or '<p class="muted">No days yet.</p>',
+            week_rows=week_rows, heat=heat, heat_rows=len(shown), months=month_html or '<p class="muted">No days yet.</p>',
         )
     tmp = os.path.join(SNAPSHOT_DIR, ".worktracker.html.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
