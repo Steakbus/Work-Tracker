@@ -1,0 +1,67 @@
+<!doctype html>
+<!-- Phone snapshot of the board, next to the tracker's worktracker.html. workflow.py fills the
+     placeholders after every change (see write_snapshot). No JavaScript; cards open with <details>. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workflow</title>
+<style>
+  :root {
+    --bg: #f6f8fa; --card: #fff; --border: #d0d7de; --text: #1f2328; --muted: #656d76;
+    --accent: #1f883d; --danger: #cf222e; --l0: #ebedf0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8d96a0;
+      --accent: #2ea043; --danger: #f85149; --l0: #21262d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px 16px 40px; background: var(--bg); color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums; -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 560px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .neg { color: var(--danger); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .card.running { border-color: var(--accent); }
+  .bar { height: 6px; background: var(--l0); border-radius: 3px; overflow: hidden; }
+  .bar div { height: 100%; background: var(--accent); }
+
+  .phase { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; margin-bottom: 10px; }
+  .phase .bar { grid-column: 1 / -1; }
+
+  .column:not([open]) h2 { margin: 0; }
+  .column h2 { display: flex; justify-content: space-between; border-left: 3px solid var(--c, var(--border)); padding-left: 8px; }
+  summary { cursor: pointer; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  .item { border-top: 1px solid var(--border); }
+  .item:first-of-type { border-top: 0; }
+  .item > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 0; }
+  .item .meta { grid-column: 1 / -1; }
+  .item .body { padding: 0 0 10px; font-size: 13px; }
+  .item .body p { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .item ul { margin: 0; padding-left: 18px; }
+  .dot { color: var(--accent); }
+  .tag { display: inline-block; font-size: 12px; padding: 0 6px; border: 1px solid var(--border); border-radius: 10px; margin-right: 4px; }
+  .tag.high, .tag.bug { border-color: var(--danger); color: var(--danger); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Workflow</h1>
+    <span class="muted small">Updated $updated</span>
+  </header>
+  $phases
+  $columns
+</main>
+</body>
+</html>
