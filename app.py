@@ -1068,12 +1068,28 @@ def serve(wsgi_app):
     make_server("localhost", port, wsgi_app, threaded=True).serve_forever(poll_interval=None)
 
 
-init_db()
+def load_workflow():
+    """The Workflow board (workflow/) runs on the same server when it's there."""
+    workflow_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workflow")
+    if os.path.isfile(os.path.join(workflow_dir, "workflow.py")):
+        sys.path.insert(0, workflow_dir)
+        import workflow
+        workflow.register(sys.modules[__name__])
 
-if __name__ == "__main__":
+
+def start_background():
+    """The come-back reminder and the menu bar (macOS only)."""
+    global watcher_running
     if sys.platform == "darwin" and os.environ.get("WAKE_PROMPT", "1") == "1":
         watcher_running = True
         threading.Thread(target=wake_watcher, daemon=True).start()
     if sys.platform == "darwin":
         threading.Thread(target=menubar_pusher, daemon=True).start()
+
+
+init_db()
+
+if __name__ == "__main__":
+    load_workflow()
+    start_background()
     serve(app)

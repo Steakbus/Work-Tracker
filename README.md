@@ -189,6 +189,23 @@ works without opening a terminal.
 
 To undo: `./autostart.sh remove`. Logs go to `tracker.log` in the same folder.
 
+### Or: a desktop app instead of autostart (macOS, optional)
+
+Instead of a server that always runs, `Work Tracker.app` starts it when you open the app and stops it
+when you close the window (or ⌘Q). In the Work-Tracker folder, run once:
+
+```sh
+./make_app.sh
+```
+
+Then drag **Work Tracker.app** into the Dock. It runs this folder's code and data, so leave the folder
+where it is (or run `./make_app.sh` again after moving it). Don't combine it with step 5: while the
+autostart server runs, the app just shows that one and closing it stops nothing
+(`./autostart.sh remove`).
+
+A running timer survives closing the app (it's stored with its start time). The menu bar item, the
+come-back reminder and the phone snapshot only work while the app is open.
+
 ### Step 6 — Menu bar item (macOS, optional)
 
 Shows the running time in the menu bar, with **Start**, **Start with note…** and **Stop** one click
@@ -458,6 +475,8 @@ app.py                      backend: API, totals, come-back watcher
 static/                     frontend: index.html, app.js, stats.html, stats.js, style.css
 menubar/worktracker.sh      SwiftBar plugin (macOS)
 autostart.sh                LaunchAgent install / remove (macOS)
+desktop.py, make_app.sh     desktop app: window + server, builds Work Tracker.app (macOS)
+workflow/                   Workflow kanban board, loaded by app.py
 docs/                       README images and video
 requirements.txt            Flask
 ```

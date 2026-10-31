@@ -14,14 +14,13 @@ and panel to the same server, and keeps its board in its own database file.
 ## Run
 
 ```sh
-python workflow/run.py # instead of app.py — same port, http://localhost:47474
+python3 app.py         # from the repo root — tracker and board, http://localhost:47474
 ```
 
-Use the tracker's virtualenv if you have one (`.venv/bin/python workflow/run.py`, Windows:
-`.venv\Scripts\python workflow\run.py`). No extra dependencies besides Flask.
-
-Don't run `app.py` at the same time; both use port 47474. On macOS, `autostart.sh` still
-starts `app.py`, so point the LaunchAgent at `workflow/run.py` if you want the board after a login.
+`app.py` loads this module whenever the `workflow/` folder is there, so `autostart.sh` starts the
+board after a login too. Use the tracker's virtualenv if you have one (`.venv/bin/python app.py`,
+Windows: `.venv\Scripts\python app.py`). No extra dependencies besides Flask. `workflow/run.py`
+still works and does the same.
 
 With the tracker's `SNAPSHOT_DIR` set, a read-only `workflow.html` (phases and every column with its
 cards, no JavaScript) is written there next to `worktracker.html` after every change, for the phone.
