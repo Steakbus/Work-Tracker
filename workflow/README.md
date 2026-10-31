@@ -8,20 +8,20 @@ A kanban board that slides in from the right edge of the Work Tracker page. Card
 the tracker's timer: start the timer on a card and the time counts as normal tracker time (today,
 week, overtime, heatmap) and adds up on the card.
 
-The module doesn't change anything in the tracker. It loads `Tracker/app.py` as it is, adds its API
+The module doesn't change anything in the tracker. It loads the tracker's `app.py` (one folder up) as it is, adds its API
 and panel to the same server, and keeps its board in its own database file.
 
 ## Run
 
 ```sh
-python run.py          # instead of Tracker/app.py — same port, http://localhost:47474
+python workflow/run.py # instead of app.py — same port, http://localhost:47474
 ```
 
-Use the tracker's virtualenv if you have one (`../Tracker/.venv/bin/python run.py`, Windows:
-`..\Tracker\.venv\Scripts\python run.py`). No extra dependencies besides Flask.
+Use the tracker's virtualenv if you have one (`.venv/bin/python workflow/run.py`, Windows:
+`.venv\Scripts\python workflow\run.py`). No extra dependencies besides Flask.
 
-Don't run `Tracker/app.py` at the same time; both use port 47474. On macOS, `autostart.sh` still
-starts `app.py`, so point the LaunchAgent at `Workflow/run.py` if you want the board after a login.
+Don't run `app.py` at the same time; both use port 47474. On macOS, `autostart.sh` still
+starts `app.py`, so point the LaunchAgent at `workflow/run.py` if you want the board after a login.
 
 With the tracker's `SNAPSHOT_DIR` set, a read-only `workflow.html` (phases and every column with its
 cards, no JavaScript) is written there next to `worktracker.html` after every change, for the phone.
@@ -84,7 +84,7 @@ Browser ── /            → tracker page + workflow.css / workflow-boot.js i
 | Setting | Environment variable | Default |
 |---|---|---|
 | Board database | `WORKFLOW_DB` | `workflow.db` next to `run.py` |
-| Tracker folder | `TRACKER_DIR` | `../Tracker` |
+| Tracker folder | `TRACKER_DIR` | `..` (the repo root) |
 | Port, tracker database, watcher | `PORT`, `TRACKER_DB`, `WAKE_PROMPT` | as in the tracker |
 
 ## Known limits (first version)

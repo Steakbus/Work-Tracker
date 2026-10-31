@@ -23,7 +23,7 @@ DEFAULT_COLUMNS = [("To do", 0), ("In progress", 0), ("Done", 1)]
 SWITCH_GRACE = 120  # seconds: a card started this soon after the running session began takes that session over
 
 bp = Blueprint("workflow", __name__, static_folder="static", static_url_path="/workflow/static")
-T = None  # the tracker module (Tracker/app.py), set by register()
+T = None  # the tracker module (../app.py), set by register()
 
 
 # ---------------------------------------------------------------- database

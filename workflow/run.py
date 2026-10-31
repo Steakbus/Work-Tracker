@@ -1,6 +1,6 @@
 """Work Tracker with the Workflow module.
 
-Run:  python run.py   (instead of Tracker/app.py) then open http://localhost:47474
+Run:  python run.py   (instead of ../app.py) then open http://localhost:47474
 
 The tracker is loaded as it is, nothing in its folder is changed; this module adds its board on
 the same server and port.
@@ -12,10 +12,11 @@ import threading
 sys.dont_write_bytecode = True  # keep the tracker folder untouched (no __pycache__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TRACKER_DIR = os.environ.get("TRACKER_DIR", os.path.join(BASE_DIR, "..", "Tracker"))
+TRACKER_DIR = os.environ.get("TRACKER_DIR", os.path.join(BASE_DIR, ".."))
 sys.path.insert(0, os.path.abspath(TRACKER_DIR))
+sys.path.insert(0, BASE_DIR)  # workflow.py, not the workflow/ folder in the tracker dir
 
-import app as tracker  # noqa: E402  (Tracker/app.py)
+import app as tracker  # noqa: E402  (../app.py)
 import workflow  # noqa: E402
 
 workflow.register(tracker)
