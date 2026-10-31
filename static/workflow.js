@@ -62,6 +62,8 @@
     archive: svg('<rect x="3.5" y="4.5" width="17" height="4.5" rx="1"/><path d="M5 9v9.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>'),
     search: svg('<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>'),
     trash: svg('<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5"/>'),
+    chart: svg('<path d="M5 20V13M12 20V5M19 20v-9"/>'),
+    update: svg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/>'),
   };
   const PRIO = { "": "None", low: "Low", medium: "Medium", high: "High" };
   const TYPES = { task: "Task", bug: "Bug", issue: "Issue" };  // names match TYPES in workflow.py
@@ -1184,6 +1186,13 @@
       { label: "Add column", icon: I.board, run: () => $("wf-board").querySelector('[data-act="add-col"]')?.click() },
       { label: wide ? "Narrow board" : "Full width board", icon: wide ? I.narrow : I.wide, run: () => setWide(!wide) },
       { label: isOpen() ? "Close board" : "Open board", hint: "W", icon: I.board, noOpen: true, run: () => setOpen(!isOpen()) },
+      // The tracker's own pages and buttons, so the palette reaches them too.
+      { label: "Open dashboard", icon: I.chart, keys: "statistics stats charts", noOpen: true, run: () => { location.href = "/stats"; } },
+      document.getElementById("update-check") && { label: "Check for updates", icon: I.update, keys: "update upgrade version settings",
+        noOpen: true, run: () => {
+          document.getElementById("settings-btn").click();  // opens Settings and checks GitHub
+          document.getElementById("update-status").scrollIntoView({ block: "center" });
+        } },
     ].filter(Boolean);
   }
 

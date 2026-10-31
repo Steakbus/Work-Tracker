@@ -34,8 +34,9 @@ with **Esc** or ✕; **↔** switches to full width. The panel remembers whether
 **⌘K** (Ctrl+K on Windows/Linux) opens the **command palette** from anywhere on the page: type to
 find any command or card. Commands that need a choice ask for it next, e.g. *Move card to… → card →
 column*, *Start timer on… → card*, *Set phase of… → card → phase*, *Filter by type…*, *New bug*,
-*Add phase*. ↑↓ and Enter pick, Backspace goes back a step, Esc closes. The ⌘K hint in the search
-box opens it too.
+*Add phase*. It also reaches the tracker: *Open dashboard* goes to its statistics page, *Check for
+updates* opens its Settings and checks GitHub. ↑↓ and Enter pick, Backspace goes back a step, Esc
+closes. The ⌘K hint in the search box opens it too.
 
 | Feature | How |
 |---|---|
