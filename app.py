@@ -101,29 +101,36 @@ def session_dict(row) -> dict:
     }
 
 
-def daily_totals(first: date, last: date) -> dict:
-    """Seconds worked per day (YYYY-MM-DD -> int) in [first, last].
-
-    Sessions spanning midnight are split across the days they cover.
-    """
+def day_chunks(first: date, last: date):
+    """(session row, start, end) for every session part in [first, last], split at midnight;
+    the running session ends now."""
     lo = datetime.combine(first, time.min)
     hi = datetime.combine(last + timedelta(days=1), time.min)
     rows = get_db().execute(
-        "SELECT start_time, end_time FROM sessions "
-        "WHERE start_time < ? AND (end_time IS NULL OR end_time > ?)",
+        "SELECT * FROM sessions WHERE start_time < ? AND (end_time IS NULL OR end_time > ?) "
+        "ORDER BY start_time",
         (fmt(hi), fmt(lo)),
     ).fetchall()
 
     now = datetime.now()
-    totals: dict = {}
     for r in rows:
         s = max(parse(r["start_time"]), lo)
         e = min(parse(r["end_time"]) if r["end_time"] else now, hi)
         while s < e:
             chunk_end = min(e, datetime.combine(s.date() + timedelta(days=1), time.min))
-            key = s.date().isoformat()
-            totals[key] = totals.get(key, 0) + int((chunk_end - s).total_seconds())
+            yield r, s, chunk_end
             s = chunk_end
+
+
+def daily_totals(first: date, last: date) -> dict:
+    """Seconds worked per day (YYYY-MM-DD -> int) in [first, last].
+
+    Sessions spanning midnight are split across the days they cover.
+    """
+    totals: dict = {}
+    for _, s, e in day_chunks(first, last):
+        key = s.date().isoformat()
+        totals[key] = totals.get(key, 0) + int((e - s).total_seconds())
     return totals
 
 
@@ -169,6 +176,11 @@ def bad_request(msg: str):
 @app.get("/")
 def index():
     return app.send_static_file("index.html")
+
+
+@app.get("/stats")
+def stats_page():
+    return app.send_static_file("stats.html")
 
 
 # ---------------------------------------------------------------- API
@@ -366,6 +378,120 @@ def days():
     if (last - first).days > 800:
         return bad_request("Range too large.")
     return jsonify(daily_totals(first, last))
+
+
+SESSION_BUCKETS = [(30 * 60, "< 30m"), (3600, "30m – 1h"), (2 * 3600, "1 – 2h"), (4 * 3600, "2 – 4h"),
+                   (None, "4h +")]
+
+
+@app.get("/api/stats")
+def stats():
+    """Statistics for the dashboard: /api/stats?from=YYYY-MM-DD&to=YYYY-MM-DD (default: all time).
+
+    Days after today are left out; targets and overtime count up to today."""
+    db = get_db()
+    today = date.today()
+    first_row = db.execute("SELECT MIN(start_time) FROM sessions").fetchone()[0]
+    try:
+        first = parse_day(request.args["from"]) if "from" in request.args else (
+            parse(first_row).date() if first_row else today)
+        last = min(parse_day(request.args.get("to", today.isoformat())), today)
+    except ValueError:
+        return bad_request("Use ?from=YYYY-MM-DD&to=YYYY-MM-DD")
+    if last < first:
+        return bad_request("The end date is before the start date.")
+
+    goals, off = goal_table(), days_off()
+    worked, hours = {}, [0] * 24
+    day_start, day_end = {}, {}     # first start / last end per day, in minutes after that midnight
+    lengths: dict = {}              # session id -> seconds in range
+    notes: dict = {}                # lower-cased note -> [shown note, seconds]
+    for r, s, e in day_chunks(first, last):
+        sec = int((e - s).total_seconds())
+        key = s.date().isoformat()
+        worked[key] = worked.get(key, 0) + sec
+        lengths[r["id"]] = lengths.get(r["id"], 0) + sec
+        if s == parse(r["start_time"]):  # not the part after midnight: a late finish counts for the day it began
+            mins = lambda t: (t - datetime.combine(s.date(), time.min)).total_seconds() / 60
+            day_start[key] = min(day_start.get(key, 1440), mins(s))
+            day_end[key] = max(day_end.get(key, 0), mins(parse(r["end_time"]) if r["end_time"] else datetime.now()))
+        if r["note"].strip():
+            n = notes.setdefault(r["note"].strip().lower(), [r["note"].strip(), 0])
+            n[1] += sec
+        t = s
+        while t < e:  # seconds per hour of the day
+            nxt = min(e, t.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+            hours[t.hour] += int((nxt - t).total_seconds())
+            t = nxt
+
+    days = []
+    for i in range((last - first).days + 1):
+        d = first + timedelta(days=i)
+        days.append({"date": d.isoformat(), "seconds": worked.get(d.isoformat(), 0),
+                     "target": day_target(d, goals, off), "off": off.get(d.isoformat())})
+
+    # Streaks: workdays in a row with any work; days without a target (weekends, days off) don't break one.
+    streak = best_streak = 0
+    for d in days:
+        if d["seconds"] > 0:
+            streak += 1
+        elif d["target"] and d["date"] != today.isoformat():  # today isn't over yet
+            streak = 0
+        best_streak = max(best_streak, streak)
+
+    weeks: dict = {}
+    for d in days:
+        monday = (parse_day(d["date"]) - timedelta(days=parse_day(d["date"]).weekday())).isoformat()
+        w = weeks.setdefault(monday, {"week": monday, "seconds": 0, "target": 0})
+        w["seconds"] += d["seconds"]
+        w["target"] += d["target"]
+
+    weekdays = [{"seconds": 0, "days": 0} for _ in range(7)]
+    for d in days:
+        if d["seconds"]:
+            wd = weekdays[parse_day(d["date"]).weekday()]
+            wd["seconds"] += d["seconds"]
+            wd["days"] += 1
+
+    buckets = [{"label": label, "count": 0} for _, label in SESSION_BUCKETS]
+    for sec in lengths.values():
+        next(b for (limit, _), b in zip(SESSION_BUCKETS, buckets) if limit is None or sec < limit)["count"] += 1
+    longest = None
+    if lengths:
+        sid = max(lengths, key=lengths.get)
+        row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
+        longest = {"start_time": row["start_time"], "seconds": lengths[sid], "note": row["note"]}
+
+    target_days = [d for d in days if d["target"] and d["date"] != today.isoformat()]
+    median = lambda xs: sorted(xs)[len(xs) // 2] if xs else None
+    total, target = sum(worked.values()), sum(d["target"] for d in days)
+    return jsonify({
+        "from": first.isoformat(),
+        "to": last.isoformat(),
+        "first_year": parse(first_row).year if first_row else today.year,
+        "total_seconds": total,
+        "target_seconds": target,
+        "overtime_seconds": total - target,
+        "active_days": len(worked),
+        "target_days": len(target_days),
+        "goal_met_days": sum(1 for d in target_days if d["seconds"] >= d["target"]),
+        "current_streak": streak,
+        "best_streak": best_streak,
+        "sessions": len(lengths),
+        "longest_session": longest,
+        "session_lengths": buckets,
+        "typical_start": median(list(day_start.values())),
+        "typical_end": median(list(day_end.values())),
+        "earliest_start": min(day_start.items(), key=lambda kv: kv[1], default=None),
+        "latest_end": max(day_end.items(), key=lambda kv: kv[1], default=None),
+        "best_day": max(worked.items(), key=lambda kv: kv[1], default=None),
+        "hours": hours,
+        "weekdays": weekdays,
+        "weeks": list(weeks.values()),
+        "days": days,
+        "days_off": {k: sum(1 for d in days if d["off"] == k) for k in DAY_OFF_KINDS},
+        "notes": [{"note": n, "seconds": sec} for n, sec in sorted(notes.values(), key=lambda n: -n[1])[:8]],
+    })
 
 
 @app.get("/api/sessions")
@@ -684,6 +810,104 @@ def menubar():
               "Overtime incl. today: %s" % dur(st["balance_seconds"] + st["today_seconds"] - st["daily_target"], sign=True),
               "---", "Open tracker | href=%s sfimage=safari" % URL]
     return "\n".join(lines) + "\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+# ---------------------------------------------------------------- updates
+
+def git(*args, timeout=60) -> str:
+    """Run git in the app's folder; raises RuntimeError with git's message on failure."""
+    try:
+        res = subprocess.run(["git", *args], cwd=BASE_DIR, capture_output=True, text=True, timeout=timeout,
+                             env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})  # never wait for a password
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RuntimeError(f"git {args[0]} failed: {e}")
+    if res.returncode:
+        raise RuntimeError((res.stderr or res.stdout).strip() or f"git {args[0]} failed")
+    return res.stdout.rstrip()  # keep leading spaces: `status --porcelain` lines start with one
+
+
+def head_commit():
+    try:
+        return git("rev-parse", "--short", "HEAD")
+    except RuntimeError:
+        return None
+
+
+BOOT_COMMIT = head_commit()  # the code this process runs; the page waits for it to change after an update
+update_lock = threading.Lock()
+
+
+def update_info(fetch=True) -> dict:
+    """Where this checkout stands against its upstream branch (e.g. origin/main)."""
+    if not os.path.isdir(os.path.join(BASE_DIR, ".git")):
+        raise RuntimeError("Updates need a git checkout (git clone …); this copy was downloaded without git.")
+    if fetch:
+        git("fetch", "--quiet")
+    upstream = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    commits = git("log", "--format=%h%x09%cs%x09%s", "HEAD..@{u}")
+    return {
+        "commit": BOOT_COMMIT,
+        "date": git("log", "-1", "--format=%cs", "HEAD"),
+        "upstream": upstream,
+        "behind": [dict(zip(("commit", "date", "subject"), line.split("\t", 2))) for line in commits.splitlines()],
+        # Tracked files changed by hand would block (or be overwritten by) the pull.
+        "changed": [line[3:] for line in git("status", "--porcelain", "--untracked-files=no").splitlines()],
+    }
+
+
+@app.get("/api/version")
+def version_info():
+    return jsonify({"commit": BOOT_COMMIT})
+
+
+@app.get("/api/update")
+def check_update():
+    try:
+        return jsonify(update_info())
+    except RuntimeError as e:
+        return bad_request(str(e))
+
+
+@app.post("/api/update")
+def run_update():
+    """Pull the new commits (fast-forward only), install new requirements, then restart this process."""
+    if not update_lock.acquire(blocking=False):
+        return bad_request("An update is already running.")
+    try:
+        info = update_info()
+        if info["changed"]:
+            raise RuntimeError("Files were changed by hand, so updating could lose them: "
+                               + ", ".join(info["changed"]) + ". Commit or undo those changes first.")
+        if not info["behind"]:
+            raise RuntimeError("Already up to date.")
+        old = git("rev-parse", "HEAD")
+        git("merge", "--ff-only", "--quiet", "@{u}")
+        try:
+            if git("diff", "--name-only", old, "HEAD", "--", "requirements.txt"):
+                res = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt"],
+                                     cwd=BASE_DIR, capture_output=True, text=True, timeout=300)
+                if res.returncode:
+                    raise RuntimeError("Installing the new requirements failed: " + res.stderr.strip()[-500:])
+            res = subprocess.run([sys.executable, "-m", "py_compile", "app.py"], cwd=BASE_DIR,
+                                 capture_output=True, text=True)
+            if res.returncode:
+                raise RuntimeError("The new version doesn't start: " + res.stderr.strip()[-500:])
+        except RuntimeError:
+            git("reset", "--keep", old)  # back to the version that runs; the tree was clean
+            raise
+    except RuntimeError as e:
+        update_lock.release()
+        return bad_request(str(e))
+    # Answer first, then replace this process with the new code (same PID, so a LaunchAgent doesn't notice).
+    log(f"updated {old[:7]} -> {head_commit()}, restarting")
+    threading.Thread(target=restart, daemon=True).start()
+    return jsonify({"commit": head_commit(), "updated": len(info["behind"])})
+
+
+def restart():
+    clock.sleep(1)  # let the response go out
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, os.path.join(BASE_DIR, "app.py")])
 
 
 # ---------------------------------------------------------------- wake reminder (macOS)

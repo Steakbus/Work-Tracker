@@ -54,6 +54,7 @@ Everything runs locally: one Python process, one SQLite file, no accounts, no cl
 | **Today / This week** vs. target, time left, when you'll be done | all |
 | **Overtime balance** (days before today) and **overtime incl. today** (“if you stopped now”) | all |
 | **Activity heatmap** for the last 12 months or any year | all |
+| **Statistics dashboard** (`/stats`): goal hit rate, streaks, typical day, hours per week, overtime over time, when you work, top notes, records | all |
 | **Day view**: add, edit, delete sessions; **breaks** (e.g. lunch) that don't count as work | all |
 | **Timeline per session**: when the Mac was in use vs. away; click any time to use it as start, end or break | all¹ |
 | **Come-back reminder**: notification when you return to the Mac and no timer is running | macOS |
@@ -454,7 +455,7 @@ ticks every second, and only while the timer runs and the tab is visible; no inf
 
 ```text
 app.py                      backend: API, totals, come-back watcher
-static/                     frontend: index.html, app.js, style.css
+static/                     frontend: index.html, app.js, stats.html, stats.js, style.css
 menubar/worktracker.sh      SwiftBar plugin (macOS)
 autostart.sh                LaunchAgent install / remove (macOS)
 docs/                       README images and video

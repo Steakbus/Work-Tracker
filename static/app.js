@@ -737,9 +737,65 @@ async function enableNotifications() {
   await loadStatus();  // starts reporting this tab as able to notify
 }
 
+// ------------------------------------------------------------ settings (updates)
+
+async function checkUpdates() {
+  const msg = $("update-status");
+  $("update-run").hidden = true;
+  $("update-list").innerHTML = "";
+  msg.className = "small";
+  msg.textContent = "Checking GitHub for updates…";
+  try {
+    const u = await api("GET", "/api/update");
+    const n = u.behind.length;
+    msg.textContent = n ? `${n} update${n === 1 ? "" : "s"} available (you have ${u.commit} from ${u.date}):`
+      : `Up to date — version ${u.commit} from ${u.date}.`;
+    for (const c of u.behind.slice(0, 8)) {
+      const li = document.createElement("li");
+      li.textContent = `${c.date} · ${c.subject}`;
+      $("update-list").appendChild(li);
+    }
+    if (n > 8) $("update-list").insertAdjacentHTML("beforeend", `<li class="muted">… and ${n - 8} more</li>`);
+    if (n && u.changed.length) {
+      msg.className = "small error";
+      msg.textContent += ` Files changed by hand block the update: ${u.changed.join(", ")}.`;
+    }
+    $("update-run").hidden = !n || u.changed.length > 0;
+  } catch (e) {
+    msg.className = "small error";
+    msg.textContent = "Couldn't check for updates: " + e.message;
+  }
+}
+
+$("update-check").addEventListener("click", checkUpdates);
+$("update-run").addEventListener("click", async () => {
+  const msg = $("update-status");
+  $("update-run").disabled = $("update-check").disabled = true;
+  msg.className = "small";
+  msg.textContent = "Downloading the update…";
+  try {
+    const { commit } = await api("POST", "/api/update");
+    msg.textContent = "Updated. Restarting the server…";
+    // Wait until the restarted server runs the new version, then load the new page.
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        if ((await api("GET", "/api/version")).commit === commit) return location.reload();
+      } catch { /* still restarting */ }
+    }
+    throw new Error("the server didn't come back within a minute — check tracker.log");
+  } catch (e) {
+    msg.className = "small error";
+    msg.textContent = "Update failed: " + e.message;
+  } finally {
+    $("update-run").disabled = $("update-check").disabled = false;
+  }
+});
+
 $("settings-btn").addEventListener("click", () => {
   renderSettings();
   loadGoals();
+  checkUpdates();
   $("test-result").textContent = "";
   $("settings").showModal();
 });

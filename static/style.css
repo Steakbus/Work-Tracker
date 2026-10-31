@@ -130,6 +130,7 @@ input, select {
 .heatmap {
   display: grid;
   grid-template-rows: 16px repeat(7, 11px);
+  grid-template-columns: 30px;  /* day labels; the week columns after it are 11px */
   grid-auto-columns: 11px;
   gap: 3px;
   width: max-content;
@@ -137,7 +138,7 @@ input, select {
   color: var(--muted);
 }
 .heatmap .month { grid-row: 1; white-space: nowrap; line-height: 16px; }
-.heatmap .weekday { grid-column: 1; width: 28px; line-height: 11px; }
+.heatmap .weekday { grid-column: 1; text-align: left; line-height: 11px; white-space: nowrap; }
 .cell { width: 11px; height: 11px; border-radius: 2px; background: var(--l0); outline: 1px solid rgba(27,31,36,.06); outline-offset: -1px; }
 .heatmap .cell { cursor: pointer; }
 .cell.pad { visibility: hidden; }
@@ -240,8 +241,54 @@ input, select {
 #goal-days label { gap: 4px; }
 #goal-days input { width: auto; }
 .goal-form .btn { justify-self: start; }
+.update-list { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 2px; }
+.update-list:empty { display: none; }
+#update-status { margin: 4px 0 8px; }
 
 /* Icons */
 .icon { width: 1.1em; height: 1.1em; vertical-align: -0.2em; flex-shrink: 0; }
 .btn .icon { margin-right: 2px; }
 .checklist b { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+/* Header buttons */
+.header-actions { display: flex; align-items: center; gap: 8px; }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+
+/* Statistics page */
+.stats-hero { grid-template-columns: 2fr 1fr 1fr; }
+.hero-value { font-size: 48px; font-weight: 600; line-height: 1.1; margin: 4px 0 8px; }
+.chart-sub { margin: -8px 0 8px; }
+.chart { width: 100%; min-width: 0; }
+.chart svg { display: block; overflow: visible; }
+.chart .grid { stroke: var(--l0); stroke-width: 1; }
+.chart .baseline { stroke: var(--border); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .col { fill: var(--l3); }
+.chart .col.active { fill: var(--l4); }
+.chart .goal-mark { stroke: var(--text); stroke-width: 2; stroke-linecap: round; opacity: .55; pointer-events: none; }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .area { opacity: .12; }
+.chart .pos { stop-color: var(--accent); fill: var(--accent); }
+.chart .neg { stop-color: var(--danger); fill: var(--danger); }
+.chart .dot { stroke: var(--card); stroke-width: 2; pointer-events: none; }
+.chart .crosshair { stroke: var(--border); stroke-width: 1; pointer-events: none; }
+
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); gap: 0 16px; }
+.hbars { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hbars li { display: grid; grid-template-columns: minmax(0, 3fr) 2fr auto; align-items: center; gap: 10px; font-size: 13px; }
+.hb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-track { height: 8px; background: var(--l0); border-radius: 4px; overflow: hidden; }
+.hb-track i { display: block; height: 100%; background: var(--l3); border-radius: 0 4px 4px 0; }
+.hb-value { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; min-width: 64px; }
+
+.records { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.records li { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.records b { font-size: 18px; }
+.records .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 700px) {
+  .stats-hero { grid-template-columns: 1fr; }
+  .chart-grid { grid-template-columns: 1fr; }
+  .hero-value { font-size: 40px; }
+  header { flex-wrap: wrap; }
+}
