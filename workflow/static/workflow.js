@@ -239,11 +239,20 @@
 
   let freeTimer;
   function setOpen(open) {
-    document.body.classList.toggle("wf-open", open);
+    const body = document.body, opening = open && !isOpen();
+    body.classList.toggle("wf-open", open);
     store.set("open", open ? "1" : "");
     clearTimeout(freeTimer);
     schedule();
-    if (open) return load().catch((e) => showError("Workflow: " + e.message));
+    if (open) {
+      // Draw the cards first, still off-screen, then slide in: drawing them mid-slide made it stutter.
+      if (opening) body.classList.add("wf-preparing");
+      return load().catch((e) => showError("Workflow: " + e.message)).finally(() => {
+        void panel.offsetWidth;  // lay the board out now, before the slide starts
+        body.classList.remove("wf-preparing");
+      });
+    }
+    body.classList.remove("wf-preparing");
     menu.hidden = true;
     // Closed: let the cards' DOM and the archive list go once the panel has slid out (rebuilt on open).
     freeTimer = setTimeout(() => {
@@ -1193,6 +1202,12 @@
           document.getElementById("settings-btn").click();  // opens Settings and checks GitHub
           document.getElementById("update-status").scrollIntoView({ block: "center" });
         } },
+      document.getElementById("restart-run") && { label: "Restart app", icon: I.update, keys: "reload reboot server settings",
+        noOpen: true, run: () => {
+          document.getElementById("settings-btn").click();  // in Settings, so "Restarting…" shows; the page reloads when it's back
+          document.getElementById("restart-run").click();
+          document.getElementById("restart-status").scrollIntoView({ block: "center" });
+        } },
     ].filter(Boolean);
   }
 
@@ -1335,6 +1350,15 @@
 
   /** The card dialog for a card that doesn't exist yet; Save creates it (Cancel leaves nothing behind). */
   function openNewCard(columnId, extra = {}) {
+    if (newDraft) {  // the card that was closed without a title
+      const { card, values } = newDraft;
+      newDraft = null;
+      fillDialog(card);
+      FIELDS.forEach((id, i) => ($(id).value = values[i]));
+      openedState = "";  // counts as changed: closing it asks for a title again
+      $("wf-f-error").textContent = "Your unsaved card is back — give it a title to keep it, or Cancel to throw it away.";
+      return;
+    }
     fillDialog({ id: null, column_id: columnId, title: "", description: "", priority: "", due_date: null,
       estimate: 0, labels: [], checklist: [], type: "task", phase_id: null, ...extra });
   }
@@ -1366,6 +1390,7 @@
       renderCardTime();
       loadCardSessions();
     }
+    openedState = formState();
     dialog.showModal();
     $("wf-f-title").focus();
   }
@@ -1412,17 +1437,56 @@
     editing.checklist.forEach((item, i) => {
       const li = document.createElement("li");
       li.className = item.done ? "done" : "";
-      li.innerHTML = `<input type="checkbox"><input type="text" maxlength="300"><button type="button" class="btn link" aria-label="Remove">${I.x}</button>`;
+      li.dataset.i = i;
+      li.innerHTML = `<span class="wf-grip" draggable="true" title="Drag to reorder (or Alt+↑ / Alt+↓ while typing)">${I.grip}</span>
+        <input type="checkbox"><input type="text" maxlength="300"><button type="button" class="btn link" aria-label="Remove">${I.x}</button>`;
       const [box, text] = li.querySelectorAll("input");
       box.checked = item.done;
       text.value = item.text;
-      box.onchange = () => { item.done = box.checked; li.className = item.done ? "done" : ""; checkCount(); };
+      box.onchange = () => { item.done = box.checked; li.classList.toggle("done", item.done); checkCount(); };
       text.oninput = () => (item.text = text.value);
+      text.onkeydown = (e) => {  // Alt+↑ / Alt+↓ moves the item
+        const to = i + (e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0);
+        if (!e.altKey || to === i || to < 0 || to >= editing.checklist.length) return;
+        e.preventDefault();
+        editing.checklist.splice(to, 0, ...editing.checklist.splice(i, 1));
+        renderChecklist();
+        $("wf-f-checklist").children[to].querySelector('input[type="text"]').focus();
+      };
       li.querySelector("button").onclick = () => { editing.checklist.splice(i, 1); renderChecklist(); };
       ul.appendChild(li);
     });
     checkCount();
   }
+  // Drag an item by its grip to reorder (only the grip drags: the text field stays selectable). The rows
+  // move while dragging; the new order is taken over when the drag ends.
+  const checkUl = $("wf-f-checklist");
+  checkUl.addEventListener("dragstart", (e) => {
+    const li = e.target.closest?.(".wf-grip") && e.target.closest("li");
+    if (!li) return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", "checklist item");
+    e.dataTransfer.setDragImage(li, 12, li.offsetHeight / 2);
+    setTimeout(() => li.classList.add("dragging"), 0);
+  });
+  checkUl.addEventListener("dragover", (e) => {
+    const dragged = checkUl.querySelector("li.dragging");
+    if (!dragged) return;
+    e.preventDefault();
+    const next = [...checkUl.querySelectorAll("li:not(.dragging)")].find((n) => {
+      const r = n.getBoundingClientRect();
+      return e.clientY < r.top + r.height / 2;
+    });
+    checkUl.insertBefore(dragged, next || null);
+  });
+  checkUl.addEventListener("drop", (e) => { if (checkUl.querySelector("li.dragging")) e.preventDefault(); });
+  checkUl.addEventListener("dragend", () => {
+    if (!editing || !checkUl.querySelector("li.dragging")) return;
+    const order = [...checkUl.children].map((n) => editing.checklist[Number(n.dataset.i)]);
+    editing.checklist.splice(0, order.length, ...order);
+    renderChecklist();
+  });
+
   const checkCount = () => {
     const n = editing.checklist.length;
     const done = editing.checklist.filter((i) => i.done).length;
@@ -1434,18 +1498,47 @@
   $("wf-f-check-new").addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     e.preventDefault();  // don't submit the form
+    addPendingItem();
+  });
+
+  /** A checklist item typed but not added with Enter counts as added. */
+  function addPendingItem() {
     const text = $("wf-f-check-new").value.trim();
     if (!text) return;
     editing.checklist.push({ text, done: false });
     $("wf-f-check-new").value = "";
     renderChecklist();
-  });
+  }
+
+  /** Everything the dialog can change, to tell whether closing it has anything to save. */
+  const FIELDS = ["wf-f-title", "wf-f-desc", "wf-f-prio", "wf-f-type", "wf-f-phase", "wf-f-due", "wf-f-est",
+    "wf-f-labels", "wf-f-col", "wf-f-check-new"];
+  const formState = () => JSON.stringify([...FIELDS.map((id) => $(id).value.trim()), editing.checklist]);
+  let openedState = "";
+  let newDraft = null;  // a new card closed without a title: it comes back with the next New card
 
   const closeDialog = () => { dialog.close(); editing = null; };
-  $("wf-f-x").onclick = closeDialog;
+  /** ✕, Esc and a click outside keep the changes (Cancel throws them away). */
+  function closeKeeping() {
+    if (!editing || formState() === openedState) return closeDialog();
+    if (editing.id === null && !$("wf-f-title").value.trim()) {  // a new card can't be kept without a title
+      $("wf-f-error").textContent = "Give the card a title to keep it — or Cancel to throw it away.";
+      return $("wf-f-title").focus();
+    }
+    saveDialog();
+  }
+  $("wf-f-x").onclick = closeKeeping;
   $("wf-f-cancel").onclick = closeDialog;
-  dialog.addEventListener("cancel", () => (editing = null));  // Esc
-  closeOnBackdrop(dialog, closeDialog);  // a click around the card, like Esc
+  dialog.addEventListener("cancel", (e) => { e.preventDefault(); closeKeeping(); });  // Esc
+  closeOnBackdrop(dialog, closeKeeping);  // a click around the card, like Esc
+  // The browser closes it anyway on a second Esc: keep the changes then too — saved, or for a new card
+  // without a title, as a draft for the next New card.
+  dialog.addEventListener("close", () => {
+    if (!editing || formState() === openedState) { editing = null; return; }
+    if ($("wf-f-title").value.trim()) return saveDialog();
+    if (editing.id === null) newDraft = { card: editing, values: FIELDS.map((id) => $(id).value) };
+    editing = null;
+  });
 
   // Enter with nothing to type into focused (blank space, a checkbox): save and close the card.
   // (Listens on the document: a click on blank space can leave focus on <body>, outside the dialog.)
@@ -1458,8 +1551,21 @@
     $("wf-form").requestSubmit();
   });
 
-  $("wf-form").addEventListener("submit", async (e) => {
+  $("wf-form").addEventListener("submit", (e) => {
     e.preventDefault();
+    saveDialog();
+  });
+
+  /** Save the card in the dialog and close it; on an error it stays open and shows it. A second Esc or
+   *  click while it saves joins that save (no second card). */
+  let saving = null;
+  const saveDialog = () => (saving ||= saveDialogNow().finally(() => (saving = null)));
+  async function saveDialogNow() {
+    addPendingItem();
+    if (!$("wf-f-title").value.trim()) {
+      $("wf-f-error").textContent = "The card needs a title.";
+      return $("wf-f-title").focus();
+    }
     const est = Number($("wf-f-est").value);
     const fields = {
       title: $("wf-f-title").value,
@@ -1489,9 +1595,10 @@
       if (drawer === "archive") await renderArchive();
       if (wasRunning) trackerRefresh();  // title is the tracker's note; a done column takes the timer off the card
     } catch (err) {
+      if (!dialog.open) dialog.showModal();  // closed by the browser: show what went wrong
       $("wf-f-error").textContent = err.message;
     }
-  });
+  }
 
   $("wf-f-timer").onclick = attempt(async () => {
     await toggleTimer(cardById(editing.id));

@@ -38,12 +38,18 @@ body.wf-open .wf-tab { display: none; }
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 30; width: var(--wf-w);
   display: flex; flex-direction: column;
   background: var(--bg); border-left: 1px solid var(--border);
-  transform: translateX(105%); transition: transform .22s ease, width .22s ease; visibility: hidden;
+  transform: translateX(105%); visibility: hidden;
+  /* visibility too: closing, it stays visible until the slide-out is done (opening, it shows at once) */
+  transition: transform .22s ease, width .22s ease, visibility .22s;
 }
 body.wf-open .wf-panel { transform: none; visibility: visible; }
-body { transition: padding-right .22s ease; }
+/* While opening, the board is drawn off-screen first; then it slides in (see setOpen). */
+body.wf-open.wf-preparing .wf-panel { transform: translateX(105%); visibility: hidden; }
+/* Only the panel animates (transform is cheap); the page makes room at once, not over every frame of the
+   slide — animating its padding re-laid out the whole tracker page each frame and made the slide stutter. */
 body.wf-open { padding-right: var(--wf-w); }
 body.wf-wide .wf-panel { left: 0; width: auto; border-left: none; }
+body.wf-wide.wf-open { padding-right: 0; }  /* the panel covers the page: no need to make room */
 body.wf-resizing { cursor: col-resize; user-select: none; }
 body.wf-resizing, body.wf-resizing .wf-panel { transition: none; }
 .wf-resize { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 1; }
@@ -197,7 +203,11 @@ body.wf-wide .wf-resize { display: none; }
 .wf-dialog h4 { margin: 4px 0 0; font-size: 13px; }
 .wf-dialog h4 + .wf-progress { margin: 6px 0 8px; }
 .wf-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.wf-checklist li { display: flex; align-items: center; gap: 8px; padding: 1px 4px 1px 8px; border-radius: 6px; }
+.wf-checklist li { display: flex; align-items: center; gap: 8px; padding: 1px 4px 1px 2px; border-radius: 6px; }
+.wf-checklist li.dragging { opacity: .4; }
+.wf-checklist .wf-grip { cursor: grab; opacity: 0; transition: opacity .12s; }
+.wf-checklist li:hover .wf-grip, .wf-checklist li:focus-within .wf-grip { opacity: .6; }
+@media (hover: none) { .wf-checklist .wf-grip { opacity: .6; } }
 .wf-checklist li:hover, .wf-checklist li:focus-within { background: var(--bg); }
 /* Item text reads as plain text; the field only shows while hovered or edited. */
 .wf-checklist li input[type="text"] { flex: 1; padding: 4px 6px; border-color: transparent; background: transparent; }

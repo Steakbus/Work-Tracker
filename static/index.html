@@ -34,7 +34,7 @@
       <span id="today-label" class="muted"></span>
       <div class="header-actions">
         <a href="/stats" class="btn ghost"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg> Statistics</a>
-        <button id="settings-btn" class="btn ghost"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg> Settings</button>
+        <button id="settings-btn" class="btn ghost" title="Settings (S)"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg> Settings</button>
       </div>
     </header>
 
@@ -169,6 +169,14 @@
       <button type="button" class="btn" id="update-check">Check for updates</button>
       <button type="button" class="btn start" id="update-run" hidden>Update &amp; restart</button>
     </div>
+
+    <h3>Restart</h3>
+    <p class="small muted">Starts the app again, e.g. after changing its files or when something got stuck. A running timer
+      keeps going.</p>
+    <div class="settings-actions">
+      <button type="button" class="btn" id="restart-run">Restart app</button>
+    </div>
+    <p class="small" id="restart-status" role="status"></p>
   </dialog>
 
   <div id="tooltip" class="tooltip" hidden></div>

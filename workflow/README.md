@@ -34,13 +34,13 @@ with **Esc** or ✕; **↔** switches to full width. The panel remembers whether
 find any command or card. Commands that need a choice ask for it next, e.g. *Move card to… → card →
 column*, *Start timer on… → card*, *Set phase of… → card → phase*, *Filter by type…*, *New bug*,
 *Add phase*. It also reaches the tracker: *Open dashboard* goes to its statistics page, *Check for
-updates* opens its Settings and checks GitHub. ↑↓ and Enter pick, Backspace goes back a step, Esc
+updates* opens its Settings and checks GitHub, *Restart app* restarts it (the page reloads when it's back). ↑↓ and Enter pick, Backspace goes back a step, Esc
 closes. The ⌘K hint in the search box opens it too.
 
 | Feature | How |
 |---|---|
 | **Cards & columns** | **+ New card** at the top or press **A** (opens the card details for a new card in the first column that isn't a done column; **Add card** saves it), **+ Add card** in a column (Enter adds the next one right away), **+ Add column**; drag cards within and between columns |
-| **Card details** | Click a card: type, column, phase, priority, due date, estimate, description, labels, checklist. **Save** keeps the changes; Esc, Cancel or a click outside the box closes without saving |
+| **Card details** | Click a card: type, column, phase, priority, due date, estimate, description, labels, checklist (drag an item by its grip, or Alt+↑ / Alt+↓ while typing in it, to reorder). **Save** keeps the changes, and so do Esc, ✕ and a click outside the box (a checklist item typed but not added with Enter is added; a new card without a title asks for one, and if it closes anyway it comes back with the next new card); **Cancel** closes without saving |
 | **Card types** | **Task** (default, no badge), **Bug** (red bug icon) or **Issue** (amber icon); set it in the details, the right-click menu or the palette (*New bug*, *New issue*, *Set type of…*) |
 | **Phases** | Milestones until a release (e.g. Alpha → Beta → Release 1.0). **Phases** in the header opens a drawer: add a phase (Enter), drag to reorder, ✎ to rename, set a target date (amber within a week, red when overdue) or mark it released; each shows how many of its cards are done. Click a phase to show only its cards; click it again or its **✕ Show all** to see everything. Cards get a phase in their details, the right-click menu or the palette; new cards get the phase you're filtering by |
 | **Quick actions** | Right-click a card: open, start/stop timer, move to a column, type, phase, priority, duplicate, archive, delete |

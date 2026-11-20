@@ -287,6 +287,14 @@ async function load() {
 }
 
 $("range-select").addEventListener("change", load);
+
+// Esc or Backspace goes back to the tracker (not while the period dropdown has the keyboard).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" && e.key !== "Backspace") return;
+  if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
+  e.preventDefault();
+  location.href = "/";
+});
 let resizeTimer;
 window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => data && render(), 150); });
 
