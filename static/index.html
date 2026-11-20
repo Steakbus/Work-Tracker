@@ -21,6 +21,9 @@
     <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
       <path d="M6 6l12 12M18 6L6 18"/>
     </symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+      <path d="M5 20V13M12 20V5M19 20v-9"/>
+    </symbol>
     <symbol id="i-blocked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
       <circle cx="12" cy="12" r="8.5"/><path d="M6 18L18 6"/>
     </symbol>
@@ -29,7 +32,10 @@
     <header>
       <h1>Work Tracker</h1>
       <span id="today-label" class="muted"></span>
-      <button id="settings-btn" class="btn ghost"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg> Settings</button>
+      <div class="header-actions">
+        <a href="/stats" class="btn ghost"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg> Statistics</a>
+        <button id="settings-btn" class="btn ghost"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg> Settings</button>
+      </div>
     </header>
 
     <!-- Timer -->
@@ -155,6 +161,14 @@
     </form>
     <p class="small muted" id="goal-hint"></p>
     <p class="small error" id="goal-error"></p>
+
+    <h3>Updates</h3>
+    <p class="small" id="update-status" role="status"></p>
+    <ul id="update-list" class="small update-list"></ul>
+    <div class="settings-actions">
+      <button type="button" class="btn" id="update-check">Check for updates</button>
+      <button type="button" class="btn start" id="update-run" hidden>Update &amp; restart</button>
+    </div>
   </dialog>
 
   <div id="tooltip" class="tooltip" hidden></div>

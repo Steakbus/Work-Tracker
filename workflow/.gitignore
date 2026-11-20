@@ -1,0 +1,10 @@
+# Your board data — local only
+*.db
+*.db-journal
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+
+brag-output/

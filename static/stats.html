@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Statistics · Work Tracker</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Statistics</h1>
+      <span id="range-label" class="muted"></span>
+      <div class="header-actions">
+        <select id="range-select" aria-label="Period"></select>
+        <a href="/" class="btn ghost">← Tracker</a>
+      </div>
+    </header>
+
+    <!-- Headline numbers -->
+    <section class="stats stats-hero">
+      <div class="card stat hero">
+        <div class="label">Total worked</div>
+        <div class="hero-value" id="s-total">0h</div>
+        <div class="muted small" id="s-total-sub"></div>
+      </div>
+      <div class="card stat">
+        <div class="label">Overtime</div>
+        <div class="value" id="s-overtime">±0h 00m</div>
+        <div class="muted small" id="s-overtime-sub"></div>
+      </div>
+      <div class="card stat">
+        <div class="label">Goal reached</div>
+        <div class="value" id="s-goal">–</div>
+        <div class="bar"><div id="s-goal-bar"></div></div>
+        <div class="muted small" id="s-goal-sub"></div>
+      </div>
+    </section>
+    <section class="stats">
+      <div class="card stat">
+        <div class="label">Streak</div>
+        <div class="value" id="s-streak">0 days</div>
+        <div class="muted small" id="s-streak-sub"></div>
+      </div>
+      <div class="card stat">
+        <div class="label">Per active day</div>
+        <div class="value" id="s-avg">0h 00m</div>
+        <div class="muted small" id="s-avg-sub"></div>
+      </div>
+      <div class="card stat">
+        <div class="label">Typical day</div>
+        <div class="value" id="s-typical">–</div>
+        <div class="muted small" id="s-typical-sub"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Hours per week</h2>
+      <p class="chart-sub small muted">Columns: worked · line: your goal that week</p>
+      <div id="c-weeks" class="chart" role="img" aria-label="Hours worked per week"></div>
+    </section>
+
+    <section class="card">
+      <h2>Overtime balance over time</h2>
+      <p class="chart-sub small muted">Running total of worked minus goal, day by day</p>
+      <div id="c-balance" class="chart" role="img" aria-label="Overtime balance over time"></div>
+    </section>
+
+    <div class="chart-grid">
+      <section class="card">
+        <h2>When you work</h2>
+        <p class="chart-sub small muted">Total hours by time of day</p>
+        <div id="c-hours" class="chart" role="img" aria-label="Hours worked by time of day"></div>
+      </section>
+      <section class="card">
+        <h2>Average by weekday</h2>
+        <p class="chart-sub small muted">Average hours on days you worked</p>
+        <div id="c-weekdays" class="chart" role="img" aria-label="Average hours by weekday"></div>
+      </section>
+      <section class="card">
+        <h2>What you worked on</h2>
+        <p class="chart-sub small muted">Top session notes by time</p>
+        <ul id="c-notes" class="hbars"></ul>
+      </section>
+      <section class="card">
+        <h2>Session lengths</h2>
+        <p class="chart-sub small muted">How long a session usually lasts</p>
+        <ul id="c-lengths" class="hbars"></ul>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>Records</h2>
+      <ul id="records" class="records"></ul>
+    </section>
+  </main>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+  <script src="stats.js"></script>
+</body>
+</html>
