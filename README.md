@@ -203,6 +203,10 @@ where it is (or run `./make_app.sh` again after moving it). Don't combine it wit
 autostart server runs, the app just shows that one and closing it stops nothing
 (`./autostart.sh remove`).
 
+The Dock icon follows *System Settings → Appearance → Icon & widget style*: with **Tinted** it turns into
+the tint colour (e.g. grey with Graphite), with **Clear** into the glass look, like the other apps. A change
+shows within a few seconds while the app is open.
+
 A running timer survives closing the app (it's stored with its start time). The menu bar item, the
 come-back reminder and the phone snapshot only work while the app is open.
 
@@ -327,6 +331,7 @@ yesterday's mistake without the database growing.
 | Port | `PORT` environment variable | `47474` |
 | Database file | `TRACKER_DB` environment variable | `tracker.db` next to `app.py` |
 | Come-back watcher (reminders + away tracking) | `WAKE_PROMPT=0` disables it | on (macOS only) |
+| Update check: looks on GitHub every 12 hours and notifies once per new version (in the tracker tab, or as a macOS notification) — install it from **Settings → Updates** | `UPDATE_CHECK=0` disables it | on |
 | Phone snapshot: a read-only `worktracker.html` (stats incl. overtime, this week, heatmap, every day with its sessions) rewritten after every change — point it at a OneDrive/iCloud folder and open it in the phone's Files app | `SNAPSHOT_DIR` environment variable (`SNAPSHOT_DIR=~/folder ./autostart.sh`) | off |
 
 ---

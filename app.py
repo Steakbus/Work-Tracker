@@ -834,6 +834,7 @@ def head_commit():
 
 
 BOOT_COMMIT = head_commit()  # the code this process runs; the page waits for it to change after an update
+BOOT_TIME = clock.time()     # when this process started; the page waits for it to change after a restart
 update_lock = threading.Lock()
 
 
@@ -855,9 +856,38 @@ def update_info(fetch=True) -> dict:
     }
 
 
+UPDATE_EVERY = 12 * 3600
+notified_update = None  # newest upstream commit already announced: each new version is announced once
+
+
+def update_checker():
+    """Look for a new version every 12 hours and announce it like a reminder (tab or macOS notification).
+    Counts wall-clock time, so hours the Mac sleeps count too; a failed check (offline) is retried after an hour."""
+    global notified_update
+    checked, error = 0.0, None
+    while True:
+        if clock.time() - checked >= UPDATE_EVERY:
+            try:
+                info = update_info()
+            except RuntimeError as e:
+                checked = clock.time() - UPDATE_EVERY + 3600
+                if str(e) != error:  # once, not every hour
+                    log(f"update check failed: {e}")
+                error = str(e)
+            else:
+                checked, error = clock.time(), None
+                n = len(info["behind"])
+                if n and info["behind"][0]["commit"] != notified_update:
+                    notified_update = info["behind"][0]["commit"]
+                    shown = notify("update", "Update available", f"{n} new change{'s' if n > 1 else ''} — "
+                                   "open Settings → Updates to install.")
+                    log(f"update available ({n} new commit{'s' if n > 1 else ''}) → {'browser tab' if shown else 'macOS notification'}")
+        clock.sleep(600)
+
+
 @app.get("/api/version")
 def version_info():
-    return jsonify({"commit": BOOT_COMMIT})
+    return jsonify({"commit": BOOT_COMMIT, "boot": BOOT_TIME})
 
 
 @app.get("/api/update")
@@ -904,17 +934,33 @@ def run_update():
     return jsonify({"commit": head_commit(), "updated": len(info["behind"])})
 
 
+@app.post("/api/restart")
+def restart_app():
+    """Settings → Restart app: answer, then start this process again (a running timer keeps going)."""
+    if not update_lock.acquire(blocking=False):
+        return bad_request("The app is already restarting or updating.")
+    log("restart requested")
+    threading.Thread(target=restart, daemon=True).start()
+    return jsonify({"boot": BOOT_TIME})
+
+
 def restart():
     clock.sleep(1)  # let the response go out
     sys.stderr.flush()
-    os.execv(sys.executable, [sys.executable, os.path.join(BASE_DIR, "app.py")])
+    # Run the same program again: app.py (server, LaunchAgent) or desktop.py (the app with its window).
+    script = sys.argv[0] if sys.argv[0].endswith(".py") else os.path.join(BASE_DIR, "app.py")
+    try:
+        os.execv(sys.executable, [sys.executable, os.path.abspath(script)] + sys.argv[1:])
+    except OSError as e:  # keeps running the old process; don't leave updates and restarts locked out
+        log(f"restart failed: {e}")
+        update_lock.release()
 
 
 # ---------------------------------------------------------------- wake reminder (macOS)
 
 URL = f"http://localhost:{os.environ.get('PORT', 47474)}"
 last_reminder = 0.0  # time of the last reminder; open tracker tabs show a notification when it changes
-reminder_kind = "comeback"  # or "test" (Settings → Send test notification)
+reminder_kind = "comeback"  # or "test" (Settings → Send test notification) or "update" (update_checker)
 watcher_running = False
 tab_seen_at = 0.0   # last /api/status?notify=1 from a tab that is allowed to notify
 
@@ -923,25 +969,31 @@ def log(msg):
     print(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), msg, file=sys.stderr, flush=True)
 
 
-def remind():
+def notify(kind, subtitle, message) -> bool:
+    """Show a notification in an open tracker tab that may notify (True), else as a macOS notification."""
     global last_reminder, reminder_kind
+    last_reminder, reminder_kind = clock.time(), kind
+    bump()  # wakes the tabs; one that may notify fetches /api/status?notify=1 and shows it
+    for _ in range(15):  # after a wake, the tab may need a moment to reconnect
+        if tab_seen_at >= last_reminder:
+            return True
+        clock.sleep(1)
+    if sys.platform == "darwin":  # no tab open → macOS notification (click opens Script Editor)
+        subprocess.run(["osascript", "-e", f'display notification "{message}" with title "Work Tracker" '
+                        f'subtitle "{subtitle}" sound name "Glass"'])
+    return False
+
+
+def remind():
     with sqlite3.connect(DB_PATH) as db:
         running = db.execute("SELECT 1 FROM sessions WHERE end_time IS NULL").fetchone()
     if running:
         log("reminder skipped: timer running")
         return
-    last_reminder, reminder_kind = clock.time(), "comeback"
-    bump()  # wakes the tabs; one that may notify fetches /api/status?notify=1 and shows it
-    for _ in range(15):  # after a wake, the tab may need a moment to reconnect
-        if tab_seen_at >= last_reminder:
-            break
-        clock.sleep(1)
-    if tab_seen_at >= last_reminder:
+    if notify("comeback", "Working?", f"No timer running — open {URL} to start it."):
         log("reminder → browser tab")
-    else:  # no tab open → macOS notification (click opens Script Editor)
+    else:
         log("reminder → no tab with notifications enabled, macOS notification")
-        subprocess.run(["osascript", "-e", 'display notification "No timer running — open '
-                        f'{URL} to start it." with title "Work Tracker" subtitle "Working?" sound name "Glass"'])
 
 
 @app.post("/api/test-notification")
@@ -1078,13 +1130,15 @@ def load_workflow():
 
 
 def start_background():
-    """The come-back reminder and the menu bar (macOS only)."""
+    """The come-back reminder and the menu bar (macOS only), and the update check."""
     global watcher_running
     if sys.platform == "darwin" and os.environ.get("WAKE_PROMPT", "1") == "1":
         watcher_running = True
         threading.Thread(target=wake_watcher, daemon=True).start()
     if sys.platform == "darwin":
         threading.Thread(target=menubar_pusher, daemon=True).start()
+    if os.environ.get("UPDATE_CHECK", "1") == "1":
+        threading.Thread(target=update_checker, daemon=True).start()
 
 
 init_db()

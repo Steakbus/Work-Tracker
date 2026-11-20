@@ -219,7 +219,7 @@ input, select {
 }
 
 /* Settings */
-#settings-btn.attention { border-color: var(--accent); color: var(--accent); }
+#settings-btn.open { border-color: var(--accent); color: var(--accent); }
 .settings { width: min(560px, 92vw); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px;
   background: var(--card); color: var(--text); }
 .settings::backdrop { background: rgba(0, 0, 0, .35); }

@@ -63,17 +63,22 @@ let seenReminder = null;
 /** Show a notification. Never close or replace one from code (no `tag`, no `close()`): Firefox on
  *  macOS gives all its notifications the same identity, so removing an old one also swallows the
  *  banner of the next. Only a click closes it. */
-function notify(title, body) {
+function notify(title, body, onClick = () => $("note").focus()) {
   const n = new Notification(title, { body });
-  n.onclick = () => { window.focus(); $("note").focus(); n.close(); };
+  n.onclick = () => { window.focus(); onClick(); n.close(); };
 }
 
 async function loadStatus() {
   status = await api("GET", "/api/status" + (canNotify() ? "?notify=1" : ""));
-  // The server updates `last_reminder` when you come back with no timer running (or on a test).
+  // The server updates `last_reminder` when you come back with no timer running, when it finds an
+  // update (it looks every 12 hours) or on a test.
   if (seenReminder !== null && status.last_reminder !== seenReminder && canNotify()) {
     if (status.reminder_kind === "test") notify("Work Tracker – test notification", "It works! Reminders will look like this.");
-    else notify("Work Tracker – Working?", "No timer running — click to start.");
+    else if (status.reminder_kind === "update") {
+      notify("Work Tracker – Update available", "A new version is ready — click to install it.", () => {
+        if (!$("settings").open) $("settings-btn").click();  // Settings checks for updates and offers the button
+      });
+    } else notify("Work Tracker – Working?", "No timer running — click to start.");
   }
   seenReminder = status.last_reminder;
   fetchedAt = Date.now();
@@ -662,8 +667,6 @@ function renderSettings() {
   watcher.innerHTML = status && status.watcher ? icon("check") + " active" : "off (macOS only, or WAKE_PROMPT=0)";
   watcher.className = status && status.watcher ? "positive" : "muted";
   $("enable-notify").hidden = perm !== "default";
-  // Nudge until notifications are set up.
-  $("settings-btn").classList.toggle("attention", notifySupported && perm !== "granted");
 }
 
 // ------------------------------------------------------------ settings (work goal)
@@ -792,13 +795,61 @@ $("update-run").addEventListener("click", async () => {
   }
 });
 
+$("restart-run").addEventListener("click", async () => {
+  const msg = $("restart-status");
+  $("restart-run").disabled = true;
+  msg.className = "small";
+  msg.textContent = "Restarting…";
+  try {
+    const { boot } = await api("POST", "/api/restart");
+    // Wait until the new process answers, then load the page from it.
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        if ((await api("GET", "/api/version")).boot !== boot) return location.reload();
+      } catch { /* still restarting */ }
+    }
+    throw new Error("the app didn't come back within a minute — check tracker.log");
+  } catch (e) {
+    msg.className = "small error";
+    msg.textContent = "Restart failed: " + e.message;
+  } finally {
+    $("restart-run").disabled = false;
+  }
+});
+
 $("settings-btn").addEventListener("click", () => {
   renderSettings();
   loadGoals();
   checkUpdates();
-  $("test-result").textContent = "";
+  $("test-result").textContent = $("restart-status").textContent = "";
   $("settings").showModal();
+  $("settings-btn").classList.add("open");
 });
+// The button is green while Settings is open.
+$("settings").addEventListener("close", () => $("settings-btn").classList.remove("open"));
+
+// S opens Settings (and closes it again), unless you're typing or another dialog (a card, ⌘K) is open.
+document.addEventListener("keydown", (e) => {
+  if ((e.key !== "s" && e.key !== "S") || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+  const el = document.activeElement;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return;
+  const open = document.querySelector("dialog[open]");
+  if (open && open !== $("settings")) return;
+  e.preventDefault();
+  if (open) $("settings").close();
+  else $("settings-btn").click();
+});
+
+// A click outside the box (on the dimmed page) closes Settings, like Esc. Press and release both have to be
+// outside, so selecting text in a field and letting go outside doesn't close it.
+const outsideSettings = (e) => {
+  const r = $("settings").getBoundingClientRect();
+  return e.target === $("settings") && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom);
+};
+let downOutsideSettings = false;
+$("settings").addEventListener("mousedown", (e) => (downOutsideSettings = outsideSettings(e)));
+$("settings").addEventListener("click", (e) => { if (downOutsideSettings && outsideSettings(e)) $("settings").close(); });
 $("enable-notify").addEventListener("click", enableNotifications);
 $("test-notify").addEventListener("click", async () => {
   const result = $("test-result");
